@@ -78,6 +78,7 @@ Lazy evaluation matters.
 
 * 1.7
 sqrt_a(x) = |a + x/a| / 2
+
 [sqrt_a(x) | x \in N & error < precision], but it can not be computed finitely
 in computer.
 
@@ -86,6 +87,7 @@ IEEE 754
 For big numbers, the above sequence is infinite and the values of will jump
 bigger and smaller into two certain value between the correct result, because
 the machine cannot express the correct value;
+
 For small numbers, precision is limited, and the caclulation on them is not
 defined correctly, e.g. (1e-1000 -> 0.0). in some cases, the sequence is
 produced infinitely because only the precision becomes to zero, or return a
@@ -171,9 +173,13 @@ zero at first because `x` and the precision both become zero
 : 65536
 
 $f(n) = 2n$
+
 $g(n) = A(0, A(1, n-1)) = 2A(1, n-1) = 2^n$
+
 $h(n) = A(1, A(2, n-1)) = 2^(A(2, n-1)) = 2 \uparrow\uparrow n$
+
 $A(3, n) = A(2, A(3, n-1)) = 2 \uparrow\uparrow A(3, n-1) = 2 \uparrow\uparrow\uparrow n$
+
 $A(x, y) = 2 \uparrow^x y \quad(x \in N_+)$
 
 * 1.11
@@ -241,7 +247,9 @@ $A(x, y) = 2 \uparrow^x y \quad(x \in N_+)$
 : #<void>
 
 * 1.13
+
 $\phi = \frac{1 + \sqrt 5} 2 = 1.618\cdots$
+
 $\gamma = \frac{1 - \sqrt 5} 2 = -0.618\cdots$
 
 |-------------------------------------------------------------------------------------+--------------------|
@@ -255,6 +263,7 @@ $\gamma = \frac{1 - \sqrt 5} 2 = -0.618\cdots$
 |-------------------------------------------------------------------------------------+--------------------|
 
 $\gamma^n < 1, \gamma^n \rightarrow 0$
+
 $\phi^n - \gamma^n \approx \phi^n$
 
 * 1.14
@@ -287,30 +296,6 @@ Both $\Theta(2^a)$.
 
 #+RESULTS:
 : -0.39980345741334
-
-
-
-* draft
-#+begin_src racket
-(define (reduce2 f xs ys acc)
-  (cond [(or (null? xs) (null? ys)) acc]
-        [else (let ([x (car xs)]
-                    [y (car ys)])
-                (reduce2 f (cdr xs) (cdr ys) (f x y acc)))]))
-
-(define (range a b)
-  (define (iter a b ls)
-    (if (> a b)
-        ls
-        (iter a (dec b) (cons b ls))))
-  (iter a b nil))
-
-(reduce2 (lambda (a b acc) (+ a b acc)) (range 1 5) (range 1 5) 0)
-(reduce2 (lambda (a b acc) (and a b acc)) (range 1 5) (range 1 5) #t)
-#+end_src
-
-#+RESULTS:
-: #t
 
 * 1.16
 #+begin_src racket :noweb yes
@@ -347,6 +332,7 @@ Both $\Theta(2^a)$.
 
 * 1.19
 a      ← bq    + aq      + ap,      b ← bp    + aq (T=1)
+
 f(n+2) ← qf(n) + qf(n+1) + pf(n+1), b ← pf(n) + qf(n+1)
 
 $f(n) = f(n-2) + f(n-1) = f(n-3) + f(n-2) + f(n-2) = 2f(n-4) + 2f(n-3) + f(n-3)$
@@ -363,9 +349,13 @@ $f(n) = f(n-2) + f(n-1) = f(n-3) + f(n-2) + f(n-2) = 2f(n-4) + 2f(n-3) + f(n-3)$
 
 * 1.20
 ** normal
+
 206 % 40 = 6
+
 40 % (206 % 40) = 4
+
 (206 % 40) % (40 % (206 % 40)) = 2
+
 (40 % (206 % 40)) % [(206 % 40) % (40 % (206 % 40))] = 0
 
 |---------------------------------------------------------------------------------------------+---------+-------|
@@ -380,7 +370,7 @@ $f(n) = f(n-2) + f(n-1) = f(n-3) + f(n-2) + f(n-2) = 2f(n-4) + 2f(n-3) + f(n-3)$
 | 2                                                                                           | 0       |    18 |
 |---------------------------------------------------------------------------------------------+---------+-------|
 
-** applicatibe
+** applicative
 |----------------+-------|
 | equation       | total |
 |----------------+-------|
