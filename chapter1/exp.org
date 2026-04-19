@@ -1,0 +1,217 @@
+#+property: header-args:racket :lang sicp
+
+#+NAME: pre
+#+begin_src racket :results none
+(define (square x) (* x x))
+(define (half x) (/ x 2))
+(define (println obj) (display obj) (display "\n"))
+#+end_src
+
+
+* 1.1.7 NewTon iterate
+#+begin_src racket
+(define (sqrt-iter guess x)
+  (if (good-enough? guess x)
+      guess
+      (sqrt-iter (improve guess x)
+                 x)))
+
+(define (good-enough? guess x)
+  (< (abs (- x (* guess guess))) 0.001))
+
+(define (improve guess x)
+  (average guess (/ x guess)))
+
+(define (average x y)
+  (/ (+ x y) 2))
+
+(define (sqrt x) (sqrt-iter 1.0 x))
+(sqrt 2)
+#+end_src
+
+#+RESULTS:
+: 1.4142156862745097
+
+* 1.2.2
+#+begin_src racket
+(define (count-change amount)
+  (cc amount 5))
+
+(define (cc amount kinds-of-coins)
+  (cond [(= amount 0) 1]
+        [(or (< amount 0) (= kinds-of-coins 0)) 0]
+        [else (+ (cc amount
+                     (- kinds-of-coins 1))
+                 (cc (- amount
+                        (first-denomination kinds-of-coins))
+                     kinds-of-coins))]))
+
+(define (first-denomination kinds-of-coins)
+  (cond [(= kinds-of-coins 1) 1]
+        [(= kinds-of-coins 2) 5]
+        [(= kinds-of-coins 3) 10]
+        [(= kinds-of-coins 4) 25]
+        [(= kinds-of-coins 5) 50]
+        ))
+
+(count-change 100)
+#+end_src
+
+#+RESULTS:
+: 292
+
+* 1.2.4 fast-exponent
+#+begin_src racket :noweb yes
+<<pre>>
+(define (fast-expt b n)
+  (cond [(= n 0) 1]
+        [(even? n) (square (fast-expt b (/ n 2)))]
+        [else (* b (fast-expt b (- n 1)))]))
+(fast-expt 2 7)
+#+end_src
+
+#+RESULTS:
+: 128
+
+* 1.2.6 is prime?
+#+begin_src racket :noweb yes
+;<<pre>>
+(define (smallest-divisor n)
+  (find-divisor n 2))
+(define (find-divisor n test-divisor)
+  (cond [(> (square test-divisor) n) n]
+        [(divides? test-divisor n) test-divisor]
+        [else (find-divisor n (inc test-divisor))]))
+(define (divides? x n)
+  (= (remainder n x) 0))
+(define (prime? n)
+  (= (smallest-divisor n) n))
+(list (prime? 7) (prime? 8))
+#+end_src
+
+#+RESULTS:
+: (#t #f)
+
+Fermat test
+
+#+begin_src racket :noweb yes
+;<<pre>>
+(define (expmod base exp m)
+  (cond [(= exp 0) 1]
+        [(even? exp) (remainder (square (expmod base (/ exp 2) m)) m)]
+        [else (remainder (* base (expmod base (dec exp) m)) m)]))
+(println (list (expmod 7 2 10) (expmod 2 8 1000)))
+
+(define (fermat-test n)
+  (define (try-it a)
+    (= (expmod a n n) a))
+  (try-it (inc (random (dec n)))))
+
+(define (fast-prime? n times)
+  (cond [(< times 0) #t]
+        [(fermat-test n) (fast-prime? n (dec times))]
+        [else #f]))
+(list (fast-prime? 7 3) (fast-prime? 561 3) (fast-prime? 169 1))
+#+end_src
+
+#+RESULTS:
+: (9 256)
+: (#t #t #f)
+
+* 1.3 higher-order function to abstract
+
+** 1.3.1 sum
+
+#+begin_src racket
+(define (sum f a next b)
+  (if (> a b)
+      0
+      (+ (f a)
+         (sum f (next a) next b))))
+#+end_src
+
+** 1.3.3 fix point
+
+#+NAME: fixed-point
+#+begin_src racket
+(define tolarance 0.00001)
+
+(define (close-enough? a b)
+  (< (abs (- a b)) tolarance))
+
+(define (fixed-point f first-guess)
+  (let ([y (f first-guess)])
+    (if (close-enough? y first-guess)
+        y
+        (fixed-point f y))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+(define (average a b) (* (/ 1 2) (+ a b)))
+
+(define (sqrt x)
+  (fixed-point (lambda (y) (average y (/ x y)))
+               1.0))
+
+(sqrt 2)
+#+end_src
+
+#+RESULTS:
+: 1.4142135623746899
+
+** 1.3.4 procedure as return value
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+(define (average a b) (/ (+ a b) 2))
+
+(define (average-damp f)
+  (lambda (y) (average (f y) y)))
+
+(define (sqrt x)
+  (fixed-point (average-damp (lambda (y) (/ x y)))
+               1.0))
+
+(define (cube-root x)
+  (fixed-point (average-damp (lambda (y) (/ x (* y y))))
+               1.0))
+
+(list (sqrt 2) (cube-root 2))
+#+end_src
+
+#+RESULTS:
+: (1.4142135623746899 1.259923236422975)
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+(define dx 0.00001)
+
+(define (deriv f)
+  (lambda (x)
+    (/ (- (f (+ x dx)) (f x))
+       dx)))
+
+(define (newton-transform f)
+  (lambda (x)
+    (- x
+       (/ (f x) ((deriv f) x)))))
+
+(define (fixed-point-of-transform g transform guess)
+  (fixed-point (transform g) guess))
+
+(define (sqrt x)
+  (fixed-point-of-transform (lambda (y) (- (* y y) x)) newton-transform 1.0))
+
+(sqrt 2)
+#+end_src
+
+#+RESULTS:
+: 1.4142135623822438
+
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:

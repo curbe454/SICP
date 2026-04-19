@@ -1,0 +1,1193 @@
+#+title: Exercise
+#+property: header-args:racket :lang sicp
+#+STARTUP: latexpreview
+#+OPTIONS: tex:t
+
+#+NAME: pre
+#+begin_src racket :results none
+(define (square x) (* x x))
+(define (displayln obj) (display obj) (display "\n") obj)
+(define (half x) (/ x 2))
+(define (/= a b) (not (= a b)))
+
+(define (dup obj n)
+  (define (iter obj n acc)
+    (if (= n 0) acc
+        (iter obj (dec n) (cons obj acc))))
+  (iter obj n nil))
+(define (generate f n)
+  (reduce (lambda (_ acc) (cons (f) acc)) (dup nil n) nil))
+(define (reduce f xs acc)
+  (if (null? xs) acc
+      (reduce f (cdr xs) (f (car xs) acc))))
+(define (range a b)
+  (reduce (lambda (_ acc) (cons (dec (car acc)) acc)) (dup nil (- b a)) (list b)))
+(define (rev xs)
+  (reduce (lambda (x acc) (cons x acc)) xs nil))
+(define (length xs)
+  (reduce (lambda (x acc) (inc acc)) xs 0))
+#+end_src
+
+
+* 1.3
+#+begin_src racket :lang sicp
+; (define (max x y) (if (> x y) x y))
+(define (sum-of-maxes x y z)
+  (cond [(> x y) (+ (max y z) x)]
+        [(> y z) (+ (max x z) y)]
+        [(> z x) (+ (max x y) z)]))
+(sum-of-maxes 2 1 3)
+#+end_src
+
+#+RESULTS:
+: 5
+
+* 1.4
+#+begin_src racket
+(define (a-plus-abs-b a b)
+  ((if (> b 0) + -) a b))
+(= (a-plus-abs-b 1 -2) 3)
+#+end_src
+
+#+RESULTS:
+: #t
+
+* 1.5
+#+begin_src racket
+(define (p) (p))
+(define (test x y) (if (= x 0) 0 y))
+; (test 0 (p))
+#+end_src
+
+Endless loop in scheme: stuck evaluating `p`.
+
+* 1.6
+#+begin_src racket
+(define (new-if predicate then-clause else-clause)
+  (cond [predicate then-clause]
+        [else else-clause]))
+(if #t 1 (display 2)) ; evals 1
+(new-if #t 1 (display 2)) ; evals 1 and print 2
+
+#+end_src
+
+#+RESULTS:
+: 21
+
+Lazy evaluation matters.
+
+* 1.7
+sqrt_a(x) = |a + x/a| / 2
+[sqrt_a(x) | x \in N & error < precision], but it can not be computed finitely
+in computer.
+
+IEEE 754
+
+For big numbers, the above sequence is infinite and the values of will jump
+bigger and smaller into two certain value between the correct result, because
+the machine cannot express the correct value;
+For small numbers, precision is limited, and the caclulation on them is not
+defined correctly, e.g. (1e-1000 -> 0.0). in some cases, the sequence is
+produced infinitely because only the precision becomes to zero, or return a
+zero at first because `x` and the precision both become zero
+(sqrt-iter 1e-1000 1e-1000).
+
+* 1.8
+#+begin_src racket :noweb yes
+;<<pre>>
+; below from textbook {{{
+(define (sqrt-iter guess x)
+  (if (good-enough? guess x)
+      guess
+      (sqrt-iter (improve guess x)
+                 x)))
+
+(define (improve guess x)
+  (average guess (/ x guess)))
+
+(define (good-enough? guess x)
+  (< (abs (- x (* guess guess))) 0.001))
+
+(define (average x y)
+  (/ (+ x y) 2))
+
+(define (sqrt x) (sqrt-iter 1.0 x))
+; above from textbook }}}
+
+(define (cube x) (* x x x))
+(define (f= a b)
+  (< (abs (- a b)) 0.001))
+
+(define (cbrt-iter guess x)
+  (if (f= (cube guess) x)
+      guess
+      (cbrt-iter (improve-cbrt guess x)
+                 x)))
+
+(define (improve-cbrt guess x)
+  (/
+    (+
+      (/ x (square guess))
+      (* 2 guess))
+    3))
+
+(define (cbrt x) (cbrt-iter 1.0 x))
+(cbrt 3)
+#+end_src
+
+#+RESULTS:
+: 1.4422497895989996
+
+* 1.9
+
+#+begin_src racket
+; I love tail recursion
+(define (add a b)
+  (cond [(> a 0) (add (dec a) (inc b))]
+        [(< a 0) (add (inc a) (dec b))]
+        [(= a 0) b]))
+(add 3 4)
+#+end_src
+
+#+RESULTS:
+: 7
+
+* 1.10
+#+begin_src racket
+(define (A x y)
+  (cond [(= y 0) 0]
+        [(= x 0) (* 2 y)]
+        [(= y 1) 2]
+        [else (A (dec x)
+                 (A x (dec y)))]))
+
+(define (f n) (A 0 n))
+(define (g n) (A 1 n))
+(define (h n) (A 2 n))
+(A 3 3)
+#+end_src
+
+#+RESULTS:
+: 65536
+
+$f(n) = 2n$
+$g(n) = A(0, A(1, n-1)) = 2A(1, n-1) = 2^n$
+$h(n) = A(1, A(2, n-1)) = 2^(A(2, n-1)) = 2 \uparrow\uparrow n$
+$A(3, n) = A(2, A(3, n-1)) = 2 \uparrow\uparrow A(3, n-1) = 2 \uparrow\uparrow\uparrow n$
+$A(x, y) = 2 \uparrow^x y \quad(x \in N_+)$
+
+* 1.11
+#+begin_src racket
+(define (f-11 n)
+  (if (< n 3)
+      n
+      (+ (f-11 (- n 1)) (* (f-11 (- n 2)) 2) (* 3 (f-11 (- n 3))))))
+
+(define (f-11_ n)
+  (define (iter a b c i)
+    (cond [(= i 2) c]
+          [else (iter b c (+ (* 3 a) (* 2 b) c) (dec i))]))
+  (if (< n 3)
+      n
+      (iter 0 1 2 n)))
+
+(define (range a b)
+  (define (iter a b ls)
+    (if (> a b)
+        ls
+        (iter a (dec b) (cons b ls))))
+  (iter a b nil))
+(define (println obj)
+  (display obj) (display "\n"))
+(println (map f-11 (range 1 5)))
+(println (map f-11_ (range 1 5)))
+#+end_src
+
+#+RESULTS:
+: (1 2 4 11 25)
+: (1 2 4 11 25)
+: #<void>
+
+* 1.12
+#+begin_src racket
+; TODO: add alignment
+(define (pascal_s-triangle n)
+  (define (ij i j)
+    (cond [(or (< j 2) (= j i)) 1]
+          [(< i 2) 1]
+          [else (+ (ij (dec i) j) (ij (dec i) (dec j)))]))
+  (define (line i)
+    (define (iter j)
+      (display (ij i j))
+      (display " ")
+      (if (< j i)
+          (iter (inc j))))
+    (iter 1))
+  (define (iter i)
+    (line i)
+    (display "\n")
+    (if (< i n)
+        (iter (inc i))))
+  (iter 1))
+(pascal_s-triangle 5)
+#+end_src
+
+#+RESULTS:
+: 1
+: 1 1
+: 1 2 1
+: 1 3 3 1
+: 1 4 6 4 1
+: #<void>
+
+* 1.13
+$\phi = \frac{1 + \sqrt 5} 2 = 1.618\cdots$
+$\gamma = \frac{1 - \sqrt 5} 2 = -0.618\cdots$
+
+|-------------------------------------------------------------------------------------+--------------------|
+| $(\frac{1 \pm \sqrt 5} 2)^n$                                                        | $\Delta / \sqrt 5$ |
+|-------------------------------------------------------------------------------------+--------------------|
+| $(\frac{1 \pm \sqrt 5} 2)$                                                          |                  1 |
+| $(\frac{1 \pm \sqrt 5} 2)^2 = \frac{6 \pm 2\sqrt 5} 4 = \frac{3 \pm \sqrt 5} 2$     |                  1 |
+| $(\frac{1 \pm \sqrt 5} 2)^3 = \frac{8 \pm 4\sqrt 5} 4 = \frac{4 \pm 2\sqrt 5} 2$    |                  2 |
+| $(\frac{1 \pm \sqrt 5} 2)^4 = \frac{14 \pm 6\sqrt 5} 4 = \frac{7 \pm 3\sqrt 5} 2$   |                  3 |
+| $(\frac{1 \pm \sqrt 5} 2)^5 = \frac{22 \pm 10\sqrt 5} 4 = \frac{11 \pm 5\sqrt 5} 2$ |                  5 |
+|-------------------------------------------------------------------------------------+--------------------|
+
+$\gamma^n < 1, \gamma^n \rightarrow 0$
+$\phi^n - \gamma^n \approx \phi^n$
+
+* 1.14
+Both $\Theta(2^n)$.
+#+TODO: how to calc
+
+#+begin_src markdown
+cc(11, 5)
+cc(-49, 5) + cc(11, 4)
+0          + cc(-14, 4) + cc(11, 3)
+0          + 0          + cc(1, 3)                       + cc(11, 2)
+0          + 0          + cc(-4, 3) + cc(1, 2)           + cc(6, 2) + cc(11, 1)
+0          + 0          + 0         + cc(1, 1)+cc(-4, 1) + cc(6, 2) + cc(11, 1)
+...
+#+end_src
+
+* 1.15
+Both $\Theta(2^a)$.
+
+#+begin_src racket
+(define (cube x) (* x x x))
+(define (p x) (- (* 3 x) (* 4 (cube x))))
+(define (third x) (/ x 3.0))
+(define (sine angle)
+  (if (not (> (abs angle) 0.1))
+      angle
+      (p (sine (third angle)))))
+(sine 12.15)
+#+end_src
+
+#+RESULTS:
+: -0.39980345741334
+
+
+
+* draft
+#+begin_src racket
+(define (reduce2 f xs ys acc)
+  (cond [(or (null? xs) (null? ys)) acc]
+        [else (let ([x (car xs)]
+                    [y (car ys)])
+                (reduce2 f (cdr xs) (cdr ys) (f x y acc)))]))
+
+(define (range a b)
+  (define (iter a b ls)
+    (if (> a b)
+        ls
+        (iter a (dec b) (cons b ls))))
+  (iter a b nil))
+
+(reduce2 (lambda (a b acc) (+ a b acc)) (range 1 5) (range 1 5) 0)
+(reduce2 (lambda (a b acc) (and a b acc)) (range 1 5) (range 1 5) #t)
+#+end_src
+
+#+RESULTS:
+: #t
+
+* 1.16
+#+begin_src racket :noweb yes
+;<<pre>>
+(define (half x) (/ x 2))
+(define (fast-expt b n)
+  (define (iter b n acc)
+    (cond [(= n 0) acc]
+          [(even? n) (iter b (half n) (square acc))]
+          [else (iter b (dec n) (* acc b))]))
+  (iter b n 1))
+(fast-expt 2 7)
+#+end_src
+
+#+RESULTS:
+: 128
+
+* 1.17 & 1.18
+#+begin_src racket
+(define (double x) (+ x x))
+(define (halve x)
+  (if (even? x) (/ x 2) (/ (dec x) 2)))
+(define (fast-mul x n)
+  (define (iter x n acc)
+    (cond [(= n 0) acc]
+          [(even? n) (iter x (halve n) (double acc))]
+          [else (iter x (dec n) (+ acc x))]))
+  (iter x n 0))
+(fast-mul 6 7)
+#+end_src
+
+#+RESULTS:
+: 42
+
+* 1.19
+a      ← bq    + aq      + ap,      b ← bp    + aq (T=1)
+f(n+2) ← qf(n) + qf(n+1) + pf(n+1), b ← pf(n) + qf(n+1)
+
+$f(n) = f(n-2) + f(n-1) = f(n-3) + f(n-2) + f(n-2) = 2f(n-4) + 2f(n-3) + f(n-3)$
+
+|-----+-----+-----|
+|   T |   p |   q |
+|-----+-----+-----|
+|   1 |   0 |   1 |
+|   2 |   1 |   1 |
+|   3 |   1 |   2 |
+|   4 |   2 |   3 |
+| ... | ... | ... |
+|-----+-----+-----|
+
+* 1.20
+** normal
+206 % 40 = 6
+40 % (206 % 40) = 4
+(206 % 40) % (40 % (206 % 40)) = 2
+(40 % (206 % 40)) % [(206 % 40) % (40 % (206 % 40))] = 0
+
+|---------------------------------------------------------------------------------------------+---------+-------|
+| equation                                                                                    | times   | total |
+|---------------------------------------------------------------------------------------------+---------+-------|
+| gcd(206, 40) =                                                                              | 0       |     0 |
+| gcd(40, 206 % 40) =                                                                         | +1 (if) |     1 |
+| gcd(206 % 40, 40 % (206 % 40)) =                                                            | +2(if)  |     3 |
+| gcd(40 % (206 % 40), (206 % 40) % (40 % (206 % 40))) =                                      | +4(if)  |     7 |
+| gcd((206 % 40) % (40 % (206 % 40)), (40 % (206 % 40)) % [(206 % 40) % (40 % (206 % 40))]) = | +7(if)  |    14 |
+| (206 % 40) % (40 % (206 % 40)) =                                                            | +4      |    18 |
+| 2                                                                                           | 0       |    18 |
+|---------------------------------------------------------------------------------------------+---------+-------|
+
+** applicatibe
+|----------------+-------|
+| equation       | total |
+|----------------+-------|
+| gcd(206, 40) = |     0 |
+| gcd(40, 6) =   |     1 |
+| gcd(6, 4) =    |     2 |
+| gcd(4, 2) =    |     3 |
+| gcd(2, 0) = 2  |     4 |
+|----------------+-------|
+
+* 1.21
+
+#+NAME: prime
+#+begin_src racket :noweb yes
+;<<pre>>
+(define (smallest-divisor n)
+  (find-divisor n 2))
+(define (find-divisor n test-divisor)
+  (cond [(> (square test-divisor) n) n]
+        [(divides? test-divisor n) test-divisor]
+        [else (find-divisor n (inc test-divisor))]))
+(define (divides? x n)
+  (= (remainder n x) 0))
+(define (prime? n)
+  (= (smallest-divisor n) n))
+
+(map smallest-divisor '(199 1999 19999))
+#+end_src
+
+#+RESULTS:
+: (199 1999 7)
+
+* 1.22 time prime test
+
+#+NAME: time-prime-test
+#+begin_src racket :noweb yes :results none
+;<<prime>>
+(define (time-prime-test n)
+  (newline)
+  (display n)
+  (start-prime-test n (runtime)))
+
+(define (start-prime-test n start-time)
+  (if (prime? n)
+      (report-time (- (runtime) start-time))))
+
+(define (report-time elapsed-time)
+  (display " *** ")
+  (display elapsed-time))
+
+(define (search-for-primes a b)
+  (define (iter a b acc)
+    (cond [(> a b) acc]
+          [(even? a) (iter (inc a) b acc)]
+          [(prime? a) (iter (+ a 2) b (cons a acc))]
+          [else (iter (+ a 2) b acc)]))
+  (iter a b nil))
+
+(define (tail3 xs)
+  (reduce
+   (lambda (x acc) (if (= (length acc) 3) acc (cons x acc)))
+   (rev xs)
+   nil))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<time-prime-test>>
+(map (lambda (xs) (map time-prime-test xs)) (map tail3 (list
+ (search-for-primes 1000 1100)
+ (search-for-primes 10000 10100)
+ (search-for-primes 100000 100100)
+ (search-for-primes 1000000 1000100)
+ (search-for-primes 10000000 10000100)
+ (search-for-primes 100000000 100000100)
+)))
+#f
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+1019 *** 4
+1013 *** 0
+1009 *** 0
+10037 *** 0
+10009 *** 0
+10007 *** 0
+100043 *** 1
+100019 *** 1
+100003 *** 1
+1000037 *** 3
+1000033 *** 3
+1000003 *** 3
+10000079 *** 9
+10000019 *** 10
+100000039 *** 28
+100000037 *** 30
+100000007 *** 28#f
+#+end_example
+
+Not like $\Theta(\sqrt n)$. More like exponet inc rate...
+
+* 1.23 use odds
+
+One time faster than before.
+
+#+begin_src racket :noweb yes
+;<<time-prime-test>>
+(define (next n)
+  (cond [(= n 2) 3]
+        [else (+ n 2)]))
+
+(define (fast-find-divisor n test-divisor)
+  (cond [(> (square test-divisor) n) n]
+        [(divides? test-divisor n) test-divisor]
+        [else (fast-find-divisor n (next test-divisor))]))
+
+(define (fast-smallest-divisor n)
+  (fast-find-divisor n 2))
+
+(define (fast-prime? n)
+  (= (fast-smallest-divisor n) n))
+
+(define (fast-start-prime-test n start-time)
+  (if (fast-prime? n)
+      (report-time (- (runtime) start-time))))
+
+(define (fast-time-prime-test n)
+  (newline)
+  (display n)
+  (fast-start-prime-test n (runtime)))
+
+(map (lambda (xs) (map fast-time-prime-test xs)) (map tail3 (list
+ (search-for-primes 1000 1100)
+ (search-for-primes 10000 10100)
+ (search-for-primes 100000 100100)
+ (search-for-primes 1000000 1000100)
+ (search-for-primes 10000000 10000100)
+ (search-for-primes 100000000 100000100)
+)))
+#f
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+1019 *** 2
+1013 *** 0
+1009 *** 0
+10037 *** 0
+10009 *** 0
+10007 *** 0
+100043 *** 1
+100019 *** 1
+100003 *** 1
+1000037 *** 2
+1000033 *** 1
+1000003 *** 2
+10000079 *** 5
+10000019 *** 5
+100000039 *** 15
+100000037 *** 14
+100000007 *** 15#f
+#+end_example
+
+* 1.24 use fermat test
+
+#+NAME: fermat-test
+#+begin_src racket :noweb yes
+;<<time-prime-test>>
+(define (expmod base exp m)
+  (cond [(= exp 0) 1]
+        [(even? exp) (remainder (square (expmod base (/ exp 2) m)) m)]
+        [else (remainder (* base (expmod base (dec exp) m)) m)]))
+
+(define (fermat-test n)
+  (define (try-it a)
+    (= (expmod a n n) a))
+  (try-it (inc (random (dec n)))))
+
+(define (fast-prime? n times)
+  (cond [(< times 0) #t]
+        [(fermat-test n) (fast-prime? n (dec times))]
+        [else #f]))
+
+(define (fast-start-prime-test n start-time)
+  (if (fast-prime? n 10)
+      (report-time (- (runtime) start-time))))
+
+(define (fast-time-prime-test n)
+  (newline)
+  (display n)
+  (fast-start-prime-test n (runtime)))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<fermat-test>>
+(map (lambda (xs) (map fast-time-prime-test xs)) (map tail3 (list
+ (search-for-primes 1000 1100)
+ (search-for-primes 10000 10100)
+ (search-for-primes 100000 100100)
+ (search-for-primes 1000000 1000100)
+ (search-for-primes 10000000 10000100)
+ (search-for-primes 100000000 100000100)
+ (search-for-primes 1000000000 1000000100)
+)))
+#f
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+1019 *** 6
+1013 *** 3
+1009 *** 3
+10037 *** 3
+10009 *** 2
+10007 *** 3
+100043 *** 3
+100019 *** 3
+100003 *** 3
+1000037 *** 4
+1000033 *** 4
+1000003 *** 4
+10000079 *** 6
+10000019 *** 4
+100000039 *** 6
+100000037 *** 5
+100000007 *** 5
+1000000021 *** 6
+1000000009 *** 5
+1000000007 *** 5#f
+#+end_example
+
+Test 10 time for each number.
+
+Faster, tend to cost the same time for numbers no matter smaller or bigger. This means slower for small numbers.
+
+* 1.25 avoid use big number when calculate
+
+#+begin_src racket :results none
+(define (expmod base exp m)
+  (remainder (fast-expt base exp) m))
+#+end_src
+
+This is slow.
+
+* 1.26 A wrong expmod
+
+#+begin_src racket
+(define (expmod base exp m)
+  (cond [(= exp 0) 1]
+        [(even? exp)
+         (remainder (* (expmod base (half exp) m)
+                       (expmod base (half exp) m))
+                    m)]
+        [else
+         (remainder (* base (expmod base (dec exp) m))
+                    m)]))
+#+end_src
+
+In fact, this version of expmod have the same calculation times with $expmod(b, e, m) = b * expmod(b, e-1, m) \bmod m$, and it's $\Theta(n)$.
+
+* 1.27 Carmichael numbers
+
+#+begin_src racket :noweb yes
+;<<fermat-test>>
+(define (fermat-test-all n)
+  (reduce (lambda (a acc) (and (= (expmod a n n) a) acc)) (range 2 (dec n)) #t))
+
+(map fermat-test-all '(561 1105 1729 2465 2821 6601 7 4))
+#+end_src
+
+#+RESULTS:
+: (#t #t #t #t #t #t #t #f)
+
+* 1.28 Miller-Rabin test
+
+#+begin_src racket :noweb yes
+;<<pre>>
+(define (expmod base exp n)
+  (define (iter base exp n acc)
+    (cond [(= exp 1) acc]
+          [(even? exp)
+           (let ((tmp (remainder (square acc) n)))
+             (if (and (= tmp 1) (/= acc 1) (/= acc (- n 1)))
+                 0
+                 (iter base (half exp) n tmp)))]
+          [else (iter base (dec exp) n (remainder (* acc base) n))]))
+  (iter base exp n base))
+
+(define (miller-rabin-generate n)
+  (+ (random (- n 3)) 2))
+
+(define (miller-rabin n a)
+  (= (expmod a (dec n) n) 1))
+
+(define (miller-rabin-test n time)
+  (reduce (lambda (x acc) (and (miller-rabin n x) acc))
+          (generate (lambda () (miller-rabin-generate n)) time)
+          #t))
+
+(map (lambda (n) (miller-rabin-test n 10)) (list 4 5 6 7))
+#+end_src
+
+#+RESULTS:
+: (#f #t #f #t)
+
+* 1.29
+
+#+begin_src racket
+(define (cube x) (* x x x))
+(define (sum term a next b)
+  (if (> a b)
+      0
+      (+ (term a)
+         (sum term (next a) next b))))
+
+(define (integral f a b n)
+  (let ([h (/ (- b a) n)])
+    (define (term i)
+      (if (even? i)
+          (+ (y i) (* 2 (y (inc i))))
+          (+ (* 2 (y i)) (y (inc i)))))
+    (define (y i)
+      (f (+ a (* i h))))
+    (* (/ h 3.0) (sum term 0 inc n))))
+
+(map (lambda (n) (integral cube 0 1 n)) '(100 1000 10000))
+#+end_src
+
+#+RESULTS:
+: (0.2602020066666667 0.2510020020006667 0.2501000200020001)
+
+* 1.30
+
+#+begin_src racket
+(define (id x) x)
+(define (sum term a next b)
+  (define (iter a result)
+    (if (> a b)
+        result
+        (iter (next a) (+ (term a) result))))
+  (iter (term a) 0))
+
+(sum id 1 inc 5)
+#+end_src
+
+#+RESULTS:
+: 15
+
+* 1.31
+
+#+NAME: product
+#+begin_src racket
+(define (id x) x)
+
+(define (product-tree term a next b)
+  (if (> a b)
+      1
+      (* (term a) (product term (next a) next b))))
+
+(define (product term a next b)
+  (define (iter a result)
+    (if (> a b)
+        result
+        (iter (next a) (* (term a) result))))
+  (iter (term a) 1))
+
+(list (product id 1 inc 5) (product-tree id 1 inc 5))
+#+end_src
+
+#+RESULTS: product
+: (120 120)
+
+#+begin_src racket :noweb yes
+;<<product>>
+(define (factorial n)
+  (product id 1 inc n))
+
+(factorial 5)
+#+end_src
+
+#+RESULTS:
+: 120
+
+#+begin_src racket :noweb yes
+;<<product>>
+(define (pi n)
+  (define (term i)
+    (let ([a (if (even? i) i (inc i))]
+          [b (if (even? i) (inc i) i)])
+      (/ a b)))
+  (* 4.0
+     (product term 1 inc n)))
+
+(map pi (list 100 1000 10000))
+#+end_src
+
+#+RESULTS:
+: (3.1260789002154112 3.1400238186005973 3.1414355935899083)
+
+* 1.32
+
+#+begin_src racket
+(define (accumulate combiner null-value term a next b)
+  (define (iter i acc)
+    (if (> i b)
+        acc
+        (iter (next i) (combiner (term i) acc))))
+  (iter (term a) null-value))
+
+(define (sum term a next b)
+  (accumulate + 0 term a next b))
+
+(define (product term a next b)
+  (accumulate * 1 term a next b))
+
+(define (id x) x)
+
+(list (sum id 1 inc 6) (product id 1 inc 5))
+#+end_src
+
+#+RESULTS:
+: (21 120)
+
+* 1.33
+
+#+begin_src racket :results none
+(define (filtered-accumulate filt combiner null-value term a next b)
+  (define (iter i acc)
+    (cond [(> i b) acc]
+          [(filt (term i)) (iter (next i) acc)]
+          [else (iter (next i) (combiner (term i) acc))]))
+  (iter (term a) null-value))
+
+(define (sum-of-primes a b)
+  (filtered-accumulate prime? + id a inc b))
+
+(define (coprime a b)
+  (= (gcd a b) 1))
+(define (phi n)
+  (filtered-accumulate (lambda (x) (coprime x n)) + id 3 inc n))
+#+end_src
+
+* 1.34
+
+#+begin_src racket :results none
+(define (f g) (g 2))
+#+end_src
+
+
+src_lisp[:exports code]{(f f) => (f 2) => (2 2) => Error: 2 is not procedure}
+
+* 1.35
+
+$x \mapsto 1 + \frac 1 x \Rightarrow x^2 + x = 1 \Rightarrow \phi$
+
+#+NAME: fixed-point
+#+begin_src racket :results none
+(define tolarance 0.00001)
+
+(define (close-enough? a b)
+  (< (abs (- a b)) tolarance))
+
+(define (fixed-point f first-guess)
+  (let ([y (f first-guess)])
+    (if (close-enough? y first-guess)
+        y
+        (fixed-point f y))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+(define (phi)
+  (fixed-point (lambda (x) (+ 1 (/ 1 x)))
+               1.0))
+
+(phi)
+#+end_src
+
+#+RESULTS:
+: 1.6180327868852458
+
+* 1.36
+
+Use $x \mapsto \log(1000) / \log(x)$ to solve $x^x = 1000$.
+
+Average damp is better in this example.
+
+#+begin_src racket
+(define tolarance 0.0001)
+
+(define (close-enough? a b)
+  (< (abs (- a b)) tolarance))
+
+(define (hooked-fixed-point f first-guess hook)
+  (let ([y (f first-guess)])
+    (hook y)
+    (if (close-enough? y first-guess)
+        y
+        (hooked-fixed-point f y hook))))
+
+(define (display-then-space a) (display a) (display " "))
+(define (average x y)
+  (/ (+ x y) 2))
+
+(list (hooked-fixed-point (lambda (x) (/ (log 1000) (log x)))
+                          2.0
+                          display-then-space)
+      (newline)
+      (hooked-fixed-point (lambda (x) (average x (/ (log 1000) (log x))))
+                          2.0
+                          display-then-space))
+#+end_src
+
+#+RESULTS:
+: 9.965784284662087 3.004472209841214 6.279195757507157 3.759850702401539 5.215843784925895 4.182207192401397 4.8277650983445906 4.387593384662677 4.671250085763899 4.481403616895052 4.6053657460929 4.5230849678718865 4.577114682047341 4.541382480151454 4.564903245230833 4.549372679303342 4.559606491913287 4.552853875788271 4.557305529748263 4.554369064436181 4.556305311532999 4.555028263573554 4.555870396702851 4.555315001192079 4.5556812635433275 4.555439715736846 4.555599009998291 4.555493957531389 4.555563237292884
+: 5.9828921423310435 4.922168721308343 4.628224318195455 4.568346513136242 4.5577305909237005 4.555909809045131 4.555599411610624 4.5555465521473675 (4.555563237292884 #<void> 4.5555465521473675)
+
+* 1.37
+
+#+NAME: cont-frac
+#+begin_src racket
+(define (cont-frac n d k)
+  (define (iter i acc)
+    (if (= i 0)
+        acc
+        (iter (dec i) (/ (n i) (+ (d i) acc)))))
+  (iter k 0))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<cont-frac>>
+(define (inv-phi step)
+  (cont-frac (lambda (_i) 1.0)
+             (lambda (_i) 1.0)
+           step))
+
+(define (search)
+  (define (search-iter i)
+    (let ([res (inv-phi i)]
+          [real (/ 2 (+ 1 (sqrt 5)))])
+      (if (< (abs (- res real)) 0.00005)
+          (list i res real)
+          (search-iter (inc i)))))
+  (search-iter 1))
+
+(search)
+#+end_src
+
+#+RESULTS:
+: (11 0.6180555555555556 0.6180339887498948)
+
+#+begin_src racket
+(define (cont-frac-rec n d k)
+  (if (= k 0)
+      0
+      (/ (n k) (+ (d k) (cont-frac-rec n d (dec k))))))
+
+(cont-frac-rec (lambda (_i) 1.0)
+               (lambda (_i) 1.0)
+               11)
+#+end_src
+
+#+RESULTS:
+: 0.6180555555555556
+
+* 1.38
+
+#+begin_src racket :noweb yes
+;<<cont-frac>>
+(define (e-minus-two step)
+  (cont-frac (lambda (_) 1.0)
+             (lambda (i) (let ([m (modulo i 3)])
+                           (if (= m 2) (* 2 (+ 1 (quotient i 3))) 1)))
+             step))
+(+ (e-minus-two 10) 2)
+#+end_src
+
+#+RESULTS:
+: 2.7182817182817183
+
+* 1.39
+
+#+begin_src racket :noweb yes
+;<<cont-frac>>
+(define (tan-cf x k)
+  (cont-frac (lambda (i) (if (= i 1) x (- (* x x)))) (lambda (i) (dec (* 2 i))) k))
+
+(define pi 3.14159265358979)
+(define (to-radians x) (* pi (/ x 180)))
+(list (tan-cf 0 10) (tan-cf (to-radians 45) 10))
+#+end_src
+
+#+RESULTS:
+: (0 0.9999999999999984)
+
+* 1.40
+
+$(x^2 - 1)(x - 2) = x^3 - 2x^2 - x + 2$.
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+(define dx 0.00001)
+
+(define (deriv f)
+  (lambda (x)
+    (/ (- (f (+ x dx)) (f x))
+       dx)))
+
+(define (newtons-transform f)
+  (lambda (x)
+    (- x
+       (/ (f x) ((deriv f) x)))))
+
+(define (newtons-method f guess)
+  (fixed-point (newtons-transform f) guess))
+
+(define (cubic a b c)
+  (lambda (x) (+ (* x x x) (* a x x) (* b x) c)))
+
+(newtons-method (cubic -2 -1 2) 42)
+#+end_src
+
+#+RESULTS:
+: 2.000000000157248
+
+* 1.41
+
+#+begin_src racket
+(define (double f) (lambda (x) (f (f x))))
+
+(((double (double double)) inc) 5)
+#+end_src
+
+#+RESULTS:
+: 21
+
+* 1.42
+
+#+NAME: compose
+#+begin_src racket
+(define (compose f g) (lambda (x) (f (g x))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<compose>>
+((compose (lambda (x) (* x x)) inc) 6)
+#+end_src
+
+#+RESULTS:
+: 49
+
+* 1.43
+
+#+NAME: repeated
+#+begin_src racket :noweb yes
+;<<compose>>
+(define (repeated f times)
+  (define (iter f i acc)
+    (if (= times i) acc
+        (iter f (inc i) (compose f acc))))
+    (iter f 1 f))
+
+((repeated inc 10) 1)
+#+end_src
+
+#+RESULTS:
+: 11
+
+* 1.44
+
+#+begin_src racket :noweb yes
+;<<repeated>>
+(define dx 0.00001)
+(define (smooth f)
+  (lambda (x) (/ (+
+                  (f x)
+                  (f (+ x dx))
+                  (f (- x dx)))
+                 3)))
+
+(define (repeated-smooth f times)
+  (repeated (smooth f) times))
+
+((repeated-smooth inc 10) 1)
+#+end_src
+
+#+RESULTS:
+: 11.0
+
+* 1.45
+
+If it do not convergence, the program stucks.
+
+#+TODO: But I don't know why floor(log_2 n).
+
+#+begin_src racket :noweb yes
+;<<fixed-point>>
+;<<repeated>>
+(define (average a b) (/ (+ a b) 2))
+
+(define (average-damp f)
+  (lambda (y) (average (f y) y)))
+
+(define (n-th-power n num)
+  ((repeated (lambda (x) (* num x)) n) 1))
+
+(define (n-th-root n num)
+  (fixed-point
+   ((repeated average-damp
+             (floor (/ (log n) (log 2))))
+    (lambda (y) (/ num (n-th-power (dec n) y))))
+   1.0))
+
+(n-th-root 3 4096)
+#+end_src
+
+#+RESULTS:
+: 15.999997023605804
+
+* 1.46
+
+#+begin_src racket
+(define (iterative-improve good-enough? to-improve)
+  (define (iter guess)
+    (if (good-enough? guess)
+        guess
+        (iter (to-improve guess))))
+  iter)
+
+(define (float-equal? a b)
+  (< (abs (- a b)) 0.00001))
+
+(define (fixed-point f transform guess)
+  ((iterative-improve
+    (lambda (x) (float-equal? (f x) x))
+    (transform f))
+   guess))
+
+(define (average-damp f)
+  (lambda (x) (/ (+ (f x) x) 2)))
+
+(define (sqrt x)
+  (fixed-point (lambda (y) (/ x y)) average-damp 1.0))
+
+(sqrt 2)
+#+end_src
+
+#+RESULTS:
+: 1.4142156862745097
+
+
+#+TODO:
+* extra: 1.2.2
+#+begin_src racket
+; TODO
+; it's not convenient not using list
+(define (count-change amount)
+  (define (sum-up c1 c2 c3 c4 c5)
+    (+ (* 1 c1)
+       (* 5 c2)
+       (* 10 c3)
+       (* 25 c4)
+       (* 50 c5)
+    ))
+  (define (generate coin_numbers i)
+    #f
+    ) ; coin_numbers[i] += 1
+  (define (iter coin_numbers i rests acc)
+    (cond [(= rests 0) (inc acc)]
+          [(< rests 0) acc]
+          [else (iter
+                 (generate coin_numbers i)
+                 i
+                 (- rests (sum-up coin_numbers))
+                 (iter
+                  (generate coin_numbers (inc i))
+                  (inc i)
+                  (- rests (sum-up coin_numbers))
+                  acc)
+                 )])
+    )
+  (iter 0 0 0 0 0 amount 0))
+; or enumerate all of coin_numbers into 2d-list and take them each iter
+
+; test
+(define (range a b)
+  (define (iter a b ls)
+    (if (> a b)
+        ls
+        (iter a (dec b) (cons b ls))))
+  (iter a b nil))
+
+(define (mapfg-diff f g ls)
+  (list (map f ls) (map g ls)))
+
+(define (reduce2 f xs ys acc)
+  (cond [(or (= nil xs) (= nil ys)) acc] ; BUG: use `=' ?
+        [else (let ([x (car xs)]
+                    [y (car ys)])
+                (reduce2 f (cdr xs) (cdr ys) (f x y acc)))]))
+#+end_src
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
