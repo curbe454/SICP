@@ -1,0 +1,506 @@
+#+title: Exercise
+#+property: header-args:racket :lang sicp
+#+STARTUP: latexpreview
+#+OPTIONS: tex:t
+
+#+NAME: pre
+#+begin_src racket
+(define (reduce f xs acc)
+  (if (null? xs) acc
+      (reduce f (cdr xs) (f (car xs) acc))))
+(define (sum-numbers xs)
+  (reduce + xs 0))
+
+(sum-numbers (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: 6
+
+
+* 2.1 rational
+
+#+begin_src racket
+(define (sig x)
+  (cond [(> x 0) 1]
+        [(< x 0) -1]
+        [else 0]))
+(define (gcd a b)
+  (if (= b 0) a
+      (gcd b (modulo a b))))
+
+(define (make-rat n d)
+  (let ([sign (* (sig n) (sig d))]
+        [num (abs n)]
+        [den (abs d)])
+    (let ([p (gcd num den)])
+      (cons (* sign (quotient num p)) (quotient den p)))))
+(define (numer x) (car x))
+(define (denom x) (cdr x))
+(define (print-rat x)
+  (newline)
+  (display (numer x))
+  (display "/")
+  (display (denom x)))
+
+(print-rat (make-rat 6 -8))
+#+end_src
+
+#+RESULTS:
+:
+: -3/4#<void>
+
+* 2.2 point and segment
+
+#+NAME: point-segment
+#+begin_src racket
+; regard point as vector
+(define make-point cons)
+(define x-point car)
+(define y-point cdr)
+(define (add-point p q) (make-point (+ (x-point p) (x-point q)) (+ (y-point p) (y-point q))))
+(define (half-vector p) (make-point (/ (x-point p) 2) (/ (y-point p) 2)))
+(define (midpoint p q) (half-vector (add-point p q)))
+(define (print-point p)
+  (newline)
+  (display "(")
+  (display (x-point p))
+  (display ",")
+  (display (y-point p))
+  (display ")"))
+
+(define make-segment cons)
+(define start-segment car)
+(define end-segment cdr)
+(define (midpoint-segment l) (midpoint (start-segment l) (end-segment l)))
+
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<point-segment>>
+(print-point (midpoint-segment
+              (make-segment (make-point 0 2) (make-point 2 0))))
+#+end_src
+
+#+RESULTS:
+:
+: (1,1)#<void>
+
+* 2.3
+
+I know it's bad...
+
+#+NAME: use-rect
+#+begin_src racket :noweb yes :results none
+;<<point-segment>>
+;<<pre>>
+(define (square x) (* x x))
+(define (distance-point p q)
+  (sqrt (+ (square (- (x-point p) (x-point q)))
+           (square (- (y-point p) (y-point q))))))
+(define (length-segment l)
+  (distance-point (start-segment l) (end-segment l)))
+
+(define (perimiter-rectangle r)
+  (let ([lengths (side-lengths-rectangle r)])
+    (* 2 (+ (car lengths) (cdr lengths)))))
+
+(define (area-rectangle r)
+  (let ([lengths (side-lengths-rectangle r)])
+    (* (car lengths) (cdr lengths))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<use-rect>>
+(define (make-rectangle p q r) (cons r (cons p q))) ; defined by three point, r not on diagonal (make-segment p q)
+(define (side-lengths-rectangle rect)
+  (cons (distance-point (car rect) (cadr rect))
+        (distance-point (car rect) (cddr rect))))
+
+(let ([rect (make-rectangle (make-point 3 0) (make-point 0 4) (make-point 3 4))])
+  (list (perimiter-rectangle rect) (area-rectangle rect)))
+#+end_src
+
+#+RESULTS:
+: (14 12)
+
+#+begin_src racket :noweb yes
+;<<use-rect>>
+(define make-rectangle- cons) ; defined by two segment(not parallel)
+(define (side-lengths-rectangle r)
+  (cons (length-segment (car r))
+        (length-segment (cdr r))))
+
+(let ([rect (make-rectangle- (make-segment (make-point 3 4) (make-point 3 0)) (make-segment (make-point 3 4) (make-point 0 4)))])
+  (list (perimiter-rectangle rect) (area-rectangle rect)))
+#+end_src
+
+#+RESULTS:
+: (14 12)
+
+* 2.4 use lambda to implement cons, car, cdr
+
+#+begin_src racket
+(define (cons x y)
+  (lambda (m) (m x y)))
+
+(define (cdr z)
+  (z (lambda (x y) y)))
+
+(cdr (cons 1 2))
+#+end_src
+
+#+RESULTS:
+: 2
+
+src_lisp[:exports code]{(cdr (cons 1 2)) => (cdr (lambda (m) (m 1 2))) => ((lambda (m) (m 1 2)) (lambda (x y) y)) => ((lambda (x y) y) 1 2) => 2}
+
+* 2.5
+
+#+begin_src racket
+(define (pown base n)
+  (define (iter i acc)
+    (if (= i n) acc (iter (inc i) (* base acc))))
+  (iter 0 1))
+
+(define (cons n1 n2)
+  (* (pown 2 n1) (pown 3 n2)))
+
+(define (car z)
+  (if (not (= (modulo z 3) 0)) (/ (log z) (log 2)) (car (quotient z 3))))
+
+(define (cdr z)
+  (if (not (= (modulo z 2) 0)) (/ (log z) (log 3)) (cdr (quotient z 2))))
+
+(list (car (cons 3 4)) (cdr (cons 3 4)))
+#+end_src
+
+#+RESULTS:
+: (3.0 4.0)
+
+* 2.6
+
+#+begin_src racket :results none
+(define zero (lambda (f) (lambda (x) x)))
+
+(define (inc n) (lambda (f) (lambda (x) (f ((n f) x)))))
+
+(define (id x) (lambda (x) x))
+(define zero_ (lambda (f) id))
+(define one (lambda (f) (lambda (x) (f x))))
+(define two (lambda (f) (lambda (x) (f (f x)))))
+
+(define (add m n) (lambda f) (lambda (x) ((m f) ((n f) x))))
+#+end_src
+
+The expr in add <src_racket[:exports code]{(m f) => (lambda (y) (f (f ... (f y))))} (has the number of m of the "f"),
+and the expr <src_racket[:exports code]{((m f) ((n f) x)) => (f (f ... (f (f_ (f_ ... (f_ x))))))}.
+
+* 2.7, 2.8
+
+#+NAME: interval-calc
+#+begin_src racket :results none
+(define (add-interval x y)
+  (make-interval (+ (lower-bound x) (lower-bound y))
+                 (+ (upper-bound x) (upper-bound y))))
+
+(define (mul-interval x y)
+  (let ([p1 (* (lower-bound x) (lower-bound y))]
+        [p2 (* (lower-bound x) (upper-bound y))]
+        [p3 (* (upper-bound x) (lower-bound y))]
+        [p4 (* (upper-bound x) (upper-bound y))])
+    (make-interval (min p1 p2 p3 p4)
+                   (max p1 p2 p3 p4))))
+
+(define (make-interval a b) (cons a b))
+
+(define lower-bound car)
+(define upper-bound cdr)
+(define (sub-interval x y)
+  (make-interval (- (lower-bound x) (upper-bound y))
+                 (- (upper-bound x) (lower-bound y))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<interval-calc>>
+(let ([a (make-interval 1 2)]
+      [b (make-interval 3 4)])
+  (list
+    (add-interval a b)
+    (sub-interval a b)))
+#+end_src
+
+#+RESULTS:
+: ((4 . 6) (-3 . -1))
+
+* 2.9
+
+For interval $(a, b)$, the center is $c = \frac {a + b} 2$, the width is $w = b - c = \frac {b - a} 2$.
+
+For two interval $x = (a_1, b_1)$, $y = (a_2, b_2)$. So $x + y = (a_1 + a_2, b_1 + b_2)$, $x - y = (a_1 - b_2, b_1 - a_2)$.
+
+So $w_{x+y} = \frac {b_1 + b_2 - (a_1 + a_2)} 2 = w_x + w_y$, $w_{x-y} = \frac {b_1 + b_2 - (a_1 + a_2)} 2 = w_x + w_y$. This fits the intuision that the precision goes down as calculation number increases.
+
+For $x > 1$ and $y > 1$, $x \mul y = (a_1\mul a_2, b_1\mul b_2)$. $w_{x\mul y} = \frac {b_1\mul b_2 - a_1\mul a_2} 2$.
+
+$w_xw_y = \frac {b_1b_2 + a_1a_2 - b_1a_2 - b_2a_1} 4$, $c_x c_y = \frac {b_1b_2 + a_1a_2 + b_1a_2 + b_2a_1} 4$. $w_xc_y = \frac {b_1b_2 - a_1a_2 + b_1a_2 - b_2a_1} 4$, $c_xw_y = \frac {b_1b_2 - a_1a_2 - b_1a_2 + b2_a_1} 4$.
+
+So $w_{x\mul y} = w_xc_y + w_yc_x \quad (x > 1, y > 1)$, not only defined by $w_x$ and $w_y$.
+
+* 2.10
+
+#+NAME: div-interval
+#+begin_src racket :results none
+; example
+(define (div-interval x y)
+  (mul-interval x
+                (make-interval (/ 1.0 (upper-bound y))
+                               (/ 1.0 (lower-bound y)))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<interval-calc>>
+(define (div-interval x y)
+  (if (and (< (lower-bound y) 0) (> (upper-bound y) 0))
+      error
+      (mul-interval x
+                   (make-interval (/ 1.0 (upper-bound y))
+                                  (/ 1.0 (lower-bound y))))))
+
+(list
+ (div-interval (make-interval 2 4) (make-interval 1 2))
+ (div-interval (make-interval 2 4) (make-interval 0.0 1))
+ (div-interval (make-interval 2 4) (make-interval -1 1))
+ (div-interval (make-interval 2 4) (make-interval -2 -4))
+)
+#+end_src
+
+#+RESULTS:
+: ((1.0 . 4.0) (2.0 . +inf.0) #<procedure:error> (-2.0 . -0.5))
+
+* 2.11
+
+According to my example of interval calc $x \cdot y$, there are 3 special points for multiply computation: 1, 0 and -1.
+
+|---------+------+----------+-----------+-------|
+| b\a     | <-1  | (-1,0)   | (0, 1)    | >1    |
+|---------+------+----------+-----------+-------|
+| <-1     | >1 ↑ | >0 ↑     | <0 -      | <-1 ↓ |
+|---------+------+----------+-----------+-------|
+| (-1, 0) | .    | (0, 1) ↑ | (-1, 0) - | <0 ↓  |
+|---------+------+----------+-----------+-------|
+| (0, 1)  | .    | .        | (0, 1) ↓  | >0 -  |
+|---------+------+----------+-----------+-------|
+| >1      | .    | .        | .         | >1 ↑  |
+|---------+------+----------+-----------+-------|
+
+"↑" means the result bigger than the operands, "↓" means smaller, "-" means the result is between the two operands.
+
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| y\x                | (<-1, <-1) | (<-1, (-1, 0)) | ((-1, 0), (-1, 0)) | ((0, 1), (0, 1)) | ((0, 1), >1) | (>1, >1) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| (<-1, <-1)         | (hh, ll)   | (hh, ll)       | (hh, ll)           | (hl, lh)         | (hl, lh)     | (hl, lh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| (<-1, (-1, 0))     | .          | (hh, ll)       | (hh, ll)           | (hl, lh)         | (hl, lh)     | (hl, lh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| ((-1, 0), (-1, 0)) | .          | .              | (hh, ll)           | (hl, lh)         | (hl, lh)     | (hl, lh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| ((0, 1), (0, 1))   | .          | .              | .                  | (ll, hh)         | (ll, hh)     | (ll, hh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| ((0, 1), >1)       | .          | .              | .                  | .                | (ll, hh)     | (ll, hh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+| (>1, >1)           | .          | .              | .                  | .                | .            | (ll, hh) |
+|--------------------+------------+----------------+--------------------+------------------+--------------+----------|
+
+Ex. (hl, lh) means <src_racket[:exports code]{(make-interval (* (upper-bound x) (lower-bound y)) (* (lower-bound x) (upper-bound y)))}.
+
+It seems that 1 and -1 make no difference...
+
+|--------+----------+----------------------------+----------|
+| y\x    | (-, -)   | (-, +)                     | (+, +)   |
+|--------+----------+----------------------------+----------|
+| (-, -) | (hh, ll) | (hl, lh)                   | (hh, ll) |
+|--------+----------+----------------------------+----------|
+| (-, +) | .        | (min(hl, lh), max(hh, ll)) | (hl, hh) |
+|--------+----------+----------------------------+----------|
+| (+, +) | .        | .                          | (ll, hh) |
+|--------+----------+----------------------------+----------|
+
+Consider the min and max computation(this contains 4 conditions!), there are exact 9 conditions.
+
+|-----------------------+----------------|
+| lx < ly < 0 < hx < hy | (lx hy, hx hy) |
+|-----------------------+----------------|
+| ly < lx < 0 < hx < hy | (lx hy, .)     |
+|-----------------------+----------------|
+| lx < ly < 0 < hy < hx | (ly hx, .)     |
+|-----------------------+----------------|
+| ly < lx < 0 < hy < hx | (ly hx, .)     |
+|-----------------------+----------------|
+
+#+begin_src racket :noweb yes
+;<<interval-calc>>
+(define (interval-positive? x) (> (lower-bound x) 0))
+(define (interval-negative? x) (< (upper-bound x) 0))
+(define (interval-span-zero? x) (and (< (lower-bound x) 0) (> (upper-bound x) 0)))
+(define (mul-interval- x y)
+  (let ([h upper-bound]
+        [l lower-bound])
+    (cond
+      [(and (interval-negative? x) (interval-negative? y))
+       (make-interval (* (h x) (h y)) (* (l x) (l y)))]
+      [(and (interval-positive? x) (interval-positive? y))
+       (make-interval (* (l x) (l y)) (* (h x) (h y)))]
+      [(and (interval-positive? x) (interval-negative? y))
+       (make-interval (* (h x) (h y)) (* (l x) (l y)))]
+      [(and (interval-positive? x) (interval-span-zero? y))
+       (make-interval (* (h x) (l y)) (* (h x) (h y)))]
+      [(and (interval-negative? x) (interval-span-zero? y))
+       (make-interval (* (l x) (h y)) (* (h x) (l y)))]
+      ; below they both span zero.
+      [else (if (and (interval-span-zero? x) (interval-span-zero? y))
+                (cond
+                  [(and (< (l x) (l y)) (< (h x) (h y)))
+                   (make-interval (* (l x) (h y)) (* (h x) (h y)))]
+                  [(and (< (l y) (l x)) (< (h x) (h y)))
+                   (make-interval (* (l x) (h y)) (* (h x) (h y)))]
+                  [(and (< (l x) (l y)) (< (h y) (h x)))
+                   (make-interval (* (l y) (h x)) (* (h x) (h y)))]
+                  [(and (< (l y) (l x)) (< (h y) (h x)))
+                   (make-interval (* (l y) (h x)) (* (h x) (h y)))])
+                ; if the above conditions are not exaustive,
+                ; this function may run into infinite recursion.
+                (mul-interval- y x))]
+      )))
+
+
+(list
+ (list
+  (interval-span-zero? (make-interval 4 8))
+  (interval-positive? (make-interval 4 8))
+  (interval-negative? (make-interval 4 8)))
+ (list
+  (mul-interval- (make-interval -2 1) (make-interval -1 2))
+  (mul-interval- (make-interval -1 2) (make-interval -2 1))
+  (mul-interval- (make-interval -2 2) (make-interval -1 1))
+  (mul-interval- (make-interval -1 1) (make-interval -2 2))
+  (mul-interval- (make-interval -1 1) (make-interval 4 8)))
+ (list
+  (mul-interval (make-interval -2 1) (make-interval -1 2))
+  (mul-interval (make-interval -1 2) (make-interval -2 1))
+  (mul-interval (make-interval -2 2) (make-interval -1 1))
+  (mul-interval (make-interval -1 1) (make-interval -2 2))
+  (mul-interval (make-interval -1 1) (make-interval 4 8)))
+ )
+#+end_src
+
+#+RESULTS:
+: ((#f #t #f) ((-4 . 2) (-4 . 2) (-2 . 2) (-2 . 2) (-8 . 8)) ((-4 . 2) (-4 . 2) (-2 . 2) (-2 . 2) (-8 . 8)))
+
+* 2.12
+
+#+NAME: interval-calc-cw
+#+begin_src racket :noweb yes :results none
+;<<interval-calc>>
+(define (make-center-width c w)
+  (make-interval (- c w) (+ c w)))
+
+(define (center i)
+  (/ (+ (lower-bound i) (upper-bound i)) 2))
+
+(define (width i)
+  (/ (- (upper-bound i) (lower-bound i)) 2))
+
+(define (make-center-percent c p)
+  (let ([w (* c p)])
+    (make-interval (- c w) (+ c w))))
+(define (percent x)
+  (/ (width x) (center x)))
+#+end_src
+
+* 2.13
+
+According to my analyses in Exercise 2.9 and Exercise 2.11, for x > 0 and y > 0,
+$c = \frac {a + b} 2, w = \frac {b - a} 2$, the error $p = w / c = \frac {b-a} {b+a}$.
+
+$w_{x\mul y} = \frac {b_1b_2 - a_1a_2} 2$, $c_{x\mul y} = \frac {b_1b_2 + a_1a_2} 2$. $p_{x\mul y} = \frac {b_1b_2 - a_1a_2} {b_1b_2 + a_1a_2}$.
+
+Observe that
+$p_{xy} = \frac {w_{xy}} {w_xw_y + c_xc_y}
+= \frac {w_xc_y + w_yc_x} {w_xw_y + c_xc_y}
+= \frac {p_x + p_y} {p_xp_y + 1}$.
+
+(Does it look not so "simple" as the textbook told?)
+
+* 2.14
+
+#+begin_src racket :noweb yes
+;<<interval-calc-cw>>
+;<<div-interval>>
+(define (part1 r1 r2)
+  (div-interval (mul-interval r1 r2)
+                (add-interval r1 r2)))
+(define (part2 r1 r2)
+  (let ([one (make-interval 1 1)])
+    (div-interval one
+                  (add-interval (div-interval one r1)
+                                (div-interval one r2)))))
+
+(let ([r1 (make-center-percent 100 0.01)]
+      [r2 (make-center-percent 1000 0.001)]
+      [r3 (make-interval 1 3)]
+      [r4 (make-interval 2 4)]
+      [r5 (make-interval 9 11)]
+      )
+  (display (list
+            (div-interval r3 (make-interval 1 1))
+            (div-interval r3 r3)
+            (div-interval r3 r5)
+            (div-interval r4 r4)
+            (div-interval r4 r5)))
+  (newline)
+
+  (list
+   (part1 r1 r1)
+   (part2 r1 r1)
+
+   (part1 r1 r2)
+   (part2 r1 r2)
+
+   (part1 r3 r3)
+   (part2 r3 r3)))
+#+end_src
+
+#+RESULTS:
+: ((1.0 . 3.0) (0.3333333333333333 . 3.0) (0.09090909090909091 . 0.3333333333333333) (0.5 . 2.0) (0.18181818181818182 . 0.4444444444444444))
+: ((48.51980198019802 . 51.52020202020203) (49.49999999999999 . 50.5) (89.74682395644282 . 92.07741347905282) (90.07377049180327 . 91.7431941923775) (0.16666666666666666 . 4.5) (0.5 . 1.5))
+
+* 2.15
+
+For $x > 0, y > 0$, $w_{x\pm y} = w_x + w_y$, $p_{xy^{\pm 1}} = \frac {p_x + p_y} {p_xp_y + 1} < 1$.
+
+Let me see when $p_{xy^{\pm 1}} > p_x$.
+
+$\frac {p_x + p_y} {p_xp_y + 1} > p_x = \frac {p_x^2p_y + p_x} {p_xp_y + 1}$, this needs $1 > p_x^2$ $(p_x < 1)$. And this is always true!
+
+The add and the mul makes error larger.
+
+The less calculation is better, so <src_racket[:exports code]{part2} is better.
+
+* 2.16
+
+Well, the formula itself doesn't change when deformation. So the issue happens on implementation.
+
+<src_racket[:exports code]{(part1 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 9) (2 . 6)) => (1/6 . 4.5)}.
+
+<src_racket[:exports code]{(part2 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 1) (add-interval (1/3 . 1) (1/3 . 1))) => (1/2 . 3/2)}.
+
+It is proved that add-interval and mul-interval generates error differently, so the order of the evaluation matters.
+
+For a certain evaluable expression which can be computed in a limited time, we can find a most precise strategy to calculate. This garantees that the same formula of different form has the same calculation sequence when computing, so as the precision after computing.
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
