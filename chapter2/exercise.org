@@ -423,12 +423,10 @@ Consider the min and max computation(this contains 4 conditions!), there are exa
 According to my analyses in Exercise 2.9 and Exercise 2.11, for x > 0 and y > 0,
 $c = \frac {a + b} 2, w = \frac {b - a} 2$, the error $p = w / c = \frac {b-a} {b+a}$.
 
-$w_{x\mul y} = \frac {b_1b_2 - a_1a_2} 2$, $c_{x\mul y} = \frac {b_1b_2 + a_1a_2} 2$. $p_{x\mul y} = \frac {b_1b_2 - a_1a_2} {b_1b_2 + a_1a_2}$.
+$w_{xy} = \frac {b_1 b_2 - a_1 a_2} 2$, $c_{xy} = \frac {b_1 b_2 + a_1 a_2} 2$. $p_{xy} = \frac {b_1 b_2 - a_1 a_2} {b_1 b_2 + a_1 a_2}$.
 
 Observe that
-$p_{xy} = \frac {w_{xy}} {w_xw_y + c_xc_y}
-= \frac {w_xc_y + w_yc_x} {w_xw_y + c_xc_y}
-= \frac {p_x + p_y} {p_xp_y + 1}$.
+$p_{xy} = \frac {w_{xy}} {w_x w_y + c_x c_y} = \frac {w_x c_y + w_y c_x} {w_x w_y + c_x c_y} = \frac {p_x + p_y} {p_x p_y + 1}$.
 
 (Does it look not so "simple" as the textbook told?)
 
