@@ -497,6 +497,471 @@ It is proved that add-interval and mul-interval generates error differently, so 
 
 For a certain evaluable expression which can be computed in a limited time, we can find a most precise strategy to calculate. This garantees that the same formula of different form has the same calculation sequence when computing, so as the precision after computing.
 
+* 2.17
+
+#+begin_src racket
+(define (last-pair xs)
+  (cond [(null? xs) error]
+        [(null? (cdr xs)) xs]
+        [else (last-pair (cdr xs))]))
+
+(list (last-pair '(1 2 3 4)) (last-pair '()))
+#+end_src
+
+#+RESULTS:
+: ((4) #<procedure:error>)
+
+* 2.18
+
+#+NAME: rev
+#+begin_src racket
+(define (reverse lst)
+  (define (iter xs acc)
+    (if (null? xs)
+        acc
+        (iter (cdr xs) (cons (car xs) acc))))
+  (iter lst nil))
+
+(reverse '(1 2 3 4))
+#+end_src
+
+#+RESULTS:
+: (4 3 2 1)
+
+* 2.19
+
+The sequence of the argument `coin-values` do not make difference to the result of function `cc`. Because the `cc` will enumerates all situations of arrangement of the coins.
+
+#+begin_src racket :noweb yes
+;<<rev>>
+(define (cc amount coin-values)
+  (define no-more? null?)
+  (define first-denomination car)
+  (define except-first-denomination cdr)
+  (cond [(= amount 0) 1]
+        [(or (< amount 0) (no-more? coin-values)) 0]
+        [else (+ (cc amount
+                     (except-first-denomination coin-values))
+                 (cc (- amount (first-denomination coin-values))
+                     coin-values))]))
+
+(define us-coins (list 50 25 10 5 1))
+(define uk-coins (list 100 50 20 10 5 2 1 0.5))
+
+(define (count-change amount)
+  (cc amount us-coins))
+
+(list (count-change 100) (cc 100 (reverse us-coins)))
+#+end_src
+
+#+RESULTS:
+: (292 292)
+
+* 2.20
+
+#+begin_src racket :noweb yes
+;<<rev>>
+(define (same-parity . args)
+  (define (same? a b) (equal? (odd? a) (odd? b)))
+  (define (iter xs acc)
+    (if (null? xs)
+        acc
+        (if (same? (car xs) (car acc))
+            (iter (cdr xs) (cons (car xs) acc))
+            (iter (cdr xs) acc))))
+  (if (null? args)
+      error
+      (reverse (iter (cdr args) (list (car args))))))
+
+(list (same-parity 1 2 3 4) (same-parity 2 3 4) (same-parity 1) (same-parity))
+#+end_src
+
+#+RESULTS:
+: ((1 3) (2 4) (1) #<procedure:error>)
+
+* 2.21
+
+#+begin_src racket
+(define (square x) (* x x))
+(define (square-list items)
+  (if (null? items)
+      nil
+      (cons (square (car items)) (square-list (cdr items)))))
+
+(define (square-list- items)
+  (map square items))
+
+(let ([items (list 1 2 3)])
+  (list (square-list items) (square-list- items)))
+#+end_src
+
+#+RESULTS:
+: ((1 4 9) (1 4 9))
+
+* 2.22
+
+#+begin_src racket
+(define (square x) (* x x))
+(define (square-list items)
+  (define (iter things answer)
+    (if (null? things)
+        answer
+        (iter (cdr things) (cons answer
+                                 (square (car things))))))
+  (iter items nil))
+
+(square-list (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: (((() . 1) . 4) . 9)
+
+Well, this makes correct order, in a wrong expression of answer.
+
+See my implementation in 2.20, which use the `reverse` function after the iteration.
+
+* 2.23
+
+#+begin_src racket
+(define (for-each f xs)
+  (map f xs)
+  true)
+
+(for-each display (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: 123#t
+
+* 2.24
+
+<src_racket[:exports code]{(list 1 (list 2 (list 3 4))) => (1 (2 (3 4)))}. Root: 1, child: 2; root: 2, child 3, 4.
+
+#+begin_src racket
+(list 1 (list 2 (list 3 4)))
+#+end_src
+
+#+RESULTS:
+: (1 (2 (3 4)))
+
+* 2.25
+
+#+begin_src racket
+(define (repeat n f1)
+  (define (id x) x)
+  (define (iter i f1 acc)
+    (if (<= i 0)
+        acc
+        (iter (dec i) f1 (lambda (x) (f1 (acc x))))))
+  (iter n f1 id))
+
+(let ([t1 '(1 3 (5 7) 9)]
+      [t2 '((7))]
+      [t3 '(1 (2 (3 (4 (5 (6 7))))))])
+  (list
+   [car (cdr (car (cdr (cdr t1))))]
+   [car (car t2)]
+   [(repeat 6 (lambda (x) (car (cdr x)))) t3]
+))
+#+end_src
+
+#+RESULTS:
+: (7 7 7)
+
+* 2.26
+
+#+begin_src racket
+(define x (list 1 2 3))
+(define y (list 4 5 6))
+
+(list
+ (append x y) ; => (1 2 3 4 5 6)
+ (cons x y) ; => ((1 2 3) 4 5 6)
+ (list x y) ; => ((1 2 3) (4 5 6))
+)
+#+end_src
+
+#+RESULTS:
+: ((1 2 3 4 5 6) ((1 2 3) 4 5 6) ((1 2 3) (4 5 6)))
+
+* 2.27
+
+#+begin_src racket
+(define (deep-reverse t)
+  (cond [(not (list? t)) t]
+        [(null? t) nil]
+        [else (append (deep-reverse (cdr t)) (list (deep-reverse (car t))))]))
+
+(define (deep-reverse- t)
+  (define (iter sub acc)
+    (cond [(not (list? sub)) sub]
+          [(null? sub) acc]
+          [else (iter (cdr sub) (cons (deep-reverse- (car sub)) acc))]))
+  (iter t nil))
+
+(list (deep-reverse '((1 2) (3 4))) (deep-reverse '(1 2 (3 4))) (deep-reverse (list 1 2 3)) (deep-reverse- '(1 2 (3 4))))
+#+end_src
+
+#+RESULTS:
+: (((4 3) (2 1)) ((4 3) 2 1) (3 2 1) ((4 3) 2 1))
+
+* 2.28
+
+#+begin_src racket
+(define (fringle tree)
+  (define (iter subtree acc)
+    (cond [(not (list? subtree)) (list subtree)]
+          [(null? subtree) acc]
+          [else (iter (cdr subtree) (append (iter (car subtree) nil) acc))]))
+  (iter tree nil))
+
+(define x (list (list 1 2) (list 3 4)))
+
+(list (fringle x) (fringle (list x x)) (fringle (list nil nil)))
+#+end_src
+
+#+RESULTS:
+: ((4 3 2 1) (4 3 2 1 4 3 2 1) ())
+
+* 2.29
+
+#+begin_src racket
+(define (make-mobile left right)
+  (list left right))
+(define (make-branch length structure)
+  (list length structure))
+
+; (a)
+(define left-branch car)
+(define right-branch cadr)
+(define branch-length car)
+(define branch-structure cadr)
+
+; (b) ; this let me think about mutual recursion
+(define mobile? list?)
+(define (total-weight mobile)
+  (+ (total-branch-weight (left-branch mobile))
+     (total-branch-weight (right-branch mobile))))
+(define (total-branch-weight b)
+  (let ([s (branch-structure b)])
+    (if (mobile? s)
+        (total-weight s)
+        s)))
+
+; (c)
+(define (branch-balanced? b)
+  (let ([s (branch-structure b)])
+    (if (mobile? s)
+        (mobile-balanced? s)
+        #t)))
+(define (mobile-balanced? mobile)
+  (define torque *)
+  (let ([left (left-branch mobile)]
+        [right (right-branch mobile)])
+    (and
+     (branch-balanced? left)
+     (branch-balanced? right)
+     (= (torque (branch-length left) (total-branch-weight left))
+        (torque (branch-length right) (total-branch-weight right)))
+    )))
+
+(let* ([m1 (make-mobile (make-branch 2 5) (make-branch 2 5))]
+       [m2 (make-mobile (make-branch 4 5) (make-branch 2 m1))]
+       [m3 (make-mobile (make-branch 1 2) (make-branch 2 3))])
+  (map mobile-balanced? (list m1 m2 m3)))
+#+end_src
+
+#+RESULTS:
+: (#t #t #f)
+
+#+begin_src racket
+(define (make-mobile left right)
+  (cons left right))
+(define (make-branch length structure)
+  (cons length structure))
+
+; change code in (a) to:
+(define left-branch car)
+(define right-branch cdr)
+(define branch-length car)
+(define branch-structure cdr)
+
+(let ([x (make-mobile 1 2)])
+  (list x (car x) (cdr x)))
+#+end_src
+
+#+RESULTS:
+: ((1 . 2) 1 2)
+
+* 2.30
+
+#+begin_src racket
+(define (square x) (* x x))
+(define (square-tree tree)
+  (cond [(null? tree) nil]
+        [(not (pair? tree)) (square tree)]
+        [else (cons (square-tree (car tree))
+                    (square-tree (cdr tree)))]))
+(define (square-tree- tree)
+  (map (lambda (sub)
+         (if (pair? sub)
+             (square-tree- sub)
+             (square sub)))
+       tree))
+
+(let ([x '(1 (2 (3 4) 5) (6 7))]) (list (square-tree x) (square-tree- x)))
+#+end_src
+
+#+RESULTS:
+: ((1 (4 (9 16) 25) (36 49)) (1 (4 (9 16) 25) (36 49)))
+
+* 2.31
+
+#+NAME: tree-map
+#+begin_src racket
+(define (tree-map f tree)
+  (map (lambda (sub)
+         (if (pair? sub)
+             (tree-map f sub)
+             (f sub)))
+       tree))
+
+(tree-map (lambda (x) (* x x)) '(1 (2 (3 4) 5) (6 7)))
+#+end_src
+
+#+RESULTS:
+: (1 (4 (9 16) 25) (36 49))
+
+* 2.32
+
+It just like `count-change` in 2.19.
+
+#+begin_src racket
+(define (subsets s)
+  (if (null? s)
+      (list nil)
+      (let ([rest (subsets (cdr s))])
+        (append rest (map (lambda (sub) (cons (car s) sub)) rest)))))
+
+(subsets (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: (() (3) (2) (2 3) (1) (1 3) (1 2) (1 2 3))
+
+* 2.33
+
+#+NAME: accumulate
+#+begin_src racket
+(define (accumulate op init seq) ; or called fold_right
+    (if (null? seq) init
+        (op (car seq) (accumulate op init (cdr seq)))))
+#+end_src
+
+
+#+begin_src racket :noweb yes
+;<<accumulate>>
+(define (map p sequence)
+  (accumulate (lambda (x acc) (cons (p x) acc)) nil sequence))
+(define (append seq1 seq2)
+  (accumulate cons seq2 seq1))
+(define (length sequence)
+  (accumulate + 0 sequence))
+
+(let ([x (list 1 2 3 4)])
+  (list (map inc x) (append x x) (length x)))
+#+end_src
+
+#+RESULTS:
+: ((2 3 4 5) (1 2 3 4 1 2 3 4) 10)
+
+* 2.34
+
+#+begin_src racket :noweb yes
+;<<accumulate>>
+(define (horner-eval x coefficient-sequence)
+  (accumulate (lambda (this-coeff higher-terms)
+                (+ this-coeff (* x higher-terms)))
+              0
+              coefficient-sequence))
+
+(horner-eval 2 (list 1 3 0 5 0 1))
+#+end_src
+
+#+RESULTS:
+: 79
+
+$1 + 3x + 5x^3 + x^5 |_{x=2} = 7 + 40 + 32 = 79$
+
+* 2.35
+
+#+begin_src racket :noweb yes
+;<<accumulate>>
+(define (count-leaves t)
+  (accumulate +
+              0
+              (map (lambda (sub)
+                     (if (pair? sub)
+                         (count-leaves sub)
+                         1))
+                   t)))
+
+(define (flat-tree t)
+  (accumulate (lambda (sub acc)
+                (if (pair? sub)
+                    (append (flat-tree sub) acc)
+                    (cons sub acc)))
+              nil t))
+(define (count-leaves- t)
+  (accumulate + 0 (map (lambda (_leaf) 1) (flat-tree t))))
+
+(list
+ (count-leaves '(1 2 (3 4) 5 (6 7)))
+ (count-leaves- '(1 2 (3 4) 5 (6 7)))
+)
+#+end_src
+
+#+RESULTS:
+: (7 7)
+
+* 2.36
+
+#+begin_src racket :noweb yes
+;<<accumulate>>
+(define (accumulate-n op init seqs)
+  (if (null? (car seqs)) nil
+      (cons (accumulate op init (map car seqs))
+            (accumulate-n op init (map cdr seqs)))))
+
+(let ([x (list 1 2 3 4)])
+  (accumulate-n * 1 (list x x x)))
+#+end_src
+
+#+RESULTS:
+: (1 8 27 64)
+
+
+* OTHER
+#+begin_src racket
+(define (displayln x) (display x) (newline))
+(map displayln (list
+ (list 1 (list 2 (list 3 4)))
+))
+#+end_src
+
+#+begin_src racket
+(list
+ (list? (list 1 2 3))
+ (pair? (list 1 2 3))
+ (pair? (cons 2 3))
+ (list? (cons 2 3))
+)
+#+end_src
+
+#+RESULTS:
+: (#t #t #t #f)
+
+
 * COMMENT Local Variables
 # Local Variables:
 # org-babel-noweb-wrap-start: ";<<"
