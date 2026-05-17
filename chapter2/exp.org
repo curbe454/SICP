@@ -1,0 +1,67 @@
+#+title: Exercise
+#+property: header-args:racket :lang sicp
+#+STARTUP: latexpreview
+#+OPTIONS: tex:t
+
+* 2.2
+
+* 2.2.3
+
+#+NAME: acc
+#+begin_src racket :results none
+(define (accumulate op init seq)
+  (if (null? seq) init
+      (op (car seq) (accumulate op init (cdr seq)))))
+
+(define (flatmap proc seq)
+  (accumulate append nil (map proc seq)))
+
+(define (filter f seq)
+  (accumulate (lambda (x acc) (if (f x) (cons x acc) acc)) nil seq))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<acc>>
+(define (enumerate-interval a b)
+  (define (iter i acc)
+    (if (< i a) acc
+        (iter (dec i) (cons i acc))))
+  (if (> a b) (enumerate-interval b a)
+      (iter b nil)))
+
+(define (prime? n)
+  (define (next-odd x)
+    (if (odd? x) x (dec x)))
+  (define (iter i)
+    (cond [(<= i 1) #t]
+          [(= (modulo n i) 0) #f]
+          [else (iter (- i 2))]))
+  (cond [(= n 1) #f]
+        [(even? n) #f]
+        [else (iter (next-odd (inc (floor (sqrt n)))))]))
+
+(define (prime-sum? pair)
+  (prime? (+ (car pair) (cadr pair))))
+
+(define (make-pair-sum pair)
+  (list (car pair) (cadr pair) (+ (car pair) (cadr pair))))
+
+(define (prime-sum-pairs n)
+  (map make-pair-sum
+       (filter prime-sum?
+               (flatmap (lambda (i)
+                          (map (lambda (j) (list i j))
+                               (enumerate-interval 1 (dec i))))
+                        (enumerate-interval 1 n)))))
+
+(prime-sum-pairs 9)
+#+end_src
+
+#+RESULTS:
+: ((2 1 3) (3 2 5) (4 1 5) (4 3 7) (5 2 7) (6 1 7) (6 5 11) (7 4 11) (7 6 13) (8 3 11) (8 5 13) (9 2 11) (9 4 13) (9 8 17))
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:

@@ -926,6 +926,7 @@ $1 + 3x + 5x^3 + x^5 |_{x=2} = 7 + 40 + 32 = 79$
 
 * 2.36
 
+#+NAME: accumulate-n
 #+begin_src racket :noweb yes
 ;<<accumulate>>
 (define (accumulate-n op init seqs)
@@ -940,6 +941,301 @@ $1 + 3x + 5x^3 + x^5 |_{x=2} = 7 + 40 + 32 = 79$
 #+RESULTS:
 : (1 8 27 64)
 
+* 2.37
+
+#+begin_src racket :noweb yes
+;<<accumulate-n>>
+(define (dot-product v w)
+  (accumulate + 0 (map * v w)))
+
+(define (matrix-*-vector m v)
+  (map (lambda (w) (dot-product w v)) m))
+
+(define (transpose mat)
+  (accumulate-n cons nil mat))
+
+(define (matrix-*-matrix m n)
+  (let ([cols (transpose n)])
+    (map (lambda (v) (matrix-*-vector cols v)) m)))
+
+(define (displayln x) (display x) (newline))
+(define (display-matrix m)
+  (display "[") (display (car m)) (map (lambda (x) (newline) (display x)) (cdr m)) (display "]\n"))
+(let ([x (list 1 2)]
+      [y (list 1 2 3)]
+      [z (list 1 2 3 4)])
+  (list
+   (dot-product x x)
+   (displayln (matrix-*-vector (transpose (list y y)) x))
+   (display-matrix (transpose (list x x x)))
+   (display-matrix (matrix-*-matrix (list y y) (list z z z)))))
+#+end_src
+
+#+RESULTS:
+: (3 6 9)
+: [(1 1 1)
+: (2 2 2)]
+: [(6 12 18 24)
+: (6 12 18 24)]
+: (5 #<void> #<void> #<void>)
+
+* 2.38
+
+#+NAME: fold
+#+begin_src racket
+(define (fold-left op init seq)
+    (if (null? seq) init
+        (fold-left op (op init (car seq)) (cdr seq))))
+
+(define (fold-right op init seq)
+  (if (null? seq) init
+      (op (car seq) (fold-right op init (cdr seq)))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<fold>>
+(list
+ (fold-right / 1 (list 1 2 3)) ; => 3/2
+ (fold-left / 1 (list 1 2 3)) ; => 1/6
+ (fold-right list nil (list 1 2 3)) ; => (1 (2 (3 ())))
+ (fold-left list nil (list 1 2 3)) ; => (((() 1) 2) 3)
+)
+#+end_src
+
+#+RESULTS:
+: (3/2 1/6 (1 (2 (3 ()))) (((() 1) 2) 3))
+
+The results of them are the same only if the `op` follow commutative law.
+
+* 2.38
+
+#+begin_src racket :noweb yes
+;<<fold>>
+(define (reverse seq)
+  ;           (lamda (el acc) (append acc (list ell)))
+  (fold-right (lambda (x y) (append y (list x))) nil seq))
+
+(define (reverse- seq)
+  ;          (lambda (acc el) (cons el acc))
+  (fold-left (lambda (x y) (cons y x)) nil seq))
+
+(reverse (reverse- '(1 2 3 4)))
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4)
+
+* 2.40
+
+#+NAME: 2-40
+#+begin_src racket :results none :noweb yes
+;<<accumulate>>
+(define (enumerate-interval a b)
+  (define (iter i acc)
+    (if (< i a) acc
+        (iter (dec i) (cons i acc))))
+  (if (> a b) (enumerate-interval b a)
+      (iter b nil)))
+
+(define (filter f seq)
+  (accumulate (lambda (x acc) (if (f x) (cons x acc) acc)) nil seq))
+
+(define (flatmap proc seq)
+  (accumulate append nil (map proc seq)))
+#+end_src
+
+
+#+begin_src racket :noweb yes
+;<<2-40>>
+(define (unique-pairs n)
+  (flatmap (lambda (i)
+             (map (lambda (j) (list i j)) (enumerate-interval 1 (dec i))))
+           (enumerate-interval 1 n)))
+
+(define (prime? n)
+  (define (next-odd x)
+    (if (odd? x) x (dec x)))
+  (define (iter i)
+    (cond [(<= i 1) #t]
+          [(= (quotient n i) 0) #f]
+          [else (iter (- i 2))]))
+  (cond [(= n 1) #f]
+        [(even? n) #f]
+        [else (iter (next-odd (inc (floor (sqrt n)))))]))
+
+(define (prime-sum? pair)
+  (prime? (+ (car pair) (cadr pair))))
+
+(define (make-pair-sum pair)
+  (list (car pair) (cadr pair) (+ (car pair) (cadr pair))))
+
+(define (prime-sum-pairs n)
+  (map make-pair-sum
+       (filter prime-sum? (unique-pairs n))))
+
+(prime-sum-pairs 5)
+#+end_src
+
+#+RESULTS:
+: ((2 1 3) (3 2 5) (4 1 5) (4 3 7) (5 2 7) (5 4 9))
+
+* 2.41
+
+#+begin_src racket :noweb yes
+;<<2-40>>
+(define (unique-triples max)
+  (flatmap (lambda (i)
+             (flatmap (lambda (j)
+                        (map (lambda (k) (list i j k))
+                                 (enumerate-interval 1 (dec j))))
+                      (enumerate-interval 2 (dec i))))
+           (enumerate-interval 3 max)))
+
+(define (sum lst)
+  (accumulate + 0 lst))
+
+(define (triples-for-sum s n)
+  (filter (lambda (tri) (= s (sum tri))) (unique-triples n)))
+
+(list (unique-triples 4) (triples-for-sum 10 6))
+#+end_src
+
+#+RESULTS:
+: (((3 2 1) (4 2 1) (4 3 1) (4 3 2)) ((5 3 2) (5 4 1) (6 3 1)))
+
+* 2.42
+
+#+begin_src racket :noweb yes
+;<<2-40>>
+(define (queens board-size)
+  (define (queen-cols k)
+    (if (= k 0) (list empty-board)
+        (filter
+         (lambda (positions) (safe? k positions))
+         (flatmap
+          (lambda (rest-of-queens)
+            (map (lambda (new-row)
+                   (adjoin-position new-row k rest-of-queens))
+                 (enumerate-interval 1 board-size)))
+          (queen-cols (- k 1))))))
+  (queen-cols board-size))
+
+(define empty-board nil)
+(define (out-bounded? k cur)
+  (or (< cur 1) (> cur k)))
+(define (reverse lst)
+  (accumulate (lambda (x acc) (append acc (list x))) nil lst))
+
+(define (adjoin-position cur k others)
+  (append others (list cur)))
+
+(define (safe? k positions)
+  (define (diag-safe? k newer others)
+    (define (iter upper lower rest)
+      (cond [(null? rest) #t]
+            [(or (= upper (car rest))
+                 (= lower (car rest))) #f]
+            [else (iter (dec upper) (inc lower) (cdr rest))]))
+    (iter (dec newer) (inc newer) others))
+  (let ([rev (reverse positions)])
+    (let ([this (car rev)]
+          [others (cdr rev)])
+      (and (null? (filter (lambda (x) (= x this)) others)) ; have same value (same col)
+           (diag-safe? k this others)))))
+
+(define (compose f g) (lambda (x) (f (g x))))
+(define (display-board positions)
+  (map (lambda (col)
+         (map (lambda (x) (if (= col x) (display "♔") (display "　"))) positions)
+         (newline))
+       (enumerate-interval 1 (length positions)))
+  (newline))
+
+(display (map queens (list 1 2 3 4)))
+(newline)
+(map display-board (queens 5))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+(((1)) () () ((2 4 1 3) (3 1 4 2)))
+♔　　　　
+　　　♔　
+　♔　　　
+　　　　♔
+　　♔　　
+
+♔　　　　
+　　♔　　
+　　　　♔
+　♔　　　
+　　　♔　
+
+　　♔　　
+♔　　　　
+　　　♔　
+　♔　　　
+　　　　♔
+
+　　　♔　
+♔　　　　
+　　♔　　
+　　　　♔
+　♔　　　
+
+　♔　　　
+　　　♔　
+♔　　　　
+　　♔　　
+　　　　♔
+
+　　　　♔
+　　♔　　
+♔　　　　
+　　　♔　
+　♔　　　
+
+　♔　　　
+　　　　♔
+　　♔　　
+♔　　　　
+　　　♔　
+
+　　　　♔
+　♔　　　
+　　　♔　
+♔　　　　
+　　♔　　
+
+　　　♔　
+　♔　　　
+　　　　♔
+　　♔　　
+♔　　　　
+
+　　♔　　
+　　　　♔
+　♔　　　
+　　　♔　
+♔　　　　
+
+(#<void> #<void> #<void> #<void> #<void> #<void> #<void> #<void> #<void> #<void>)
+#+end_example
+
+* 2.43
+
+#+begin_src racket :results none
+(flatmap
+ (lambda (new-row)
+   (map (lambda (rest-of-queens)
+          (adjoin-position new-row k rest-of-queens))
+        (queen-cols (- k 1))))
+ (enumerate-interval 1 board-size))
+#+end_src
+
+For the method in 2.42, the time need to solve the problem is T(k) = F(k) + T(k - 1). While this is T'(k) = F(k) * T'(k - 1).
+
+These to accumulates to T(k) = F(1) + F(2) + ... + F(k) and T'(k) = F(1) * F(2) * ... * F(k). So this procedure costs from kT to k!T.
 
 * OTHER
 #+begin_src racket
