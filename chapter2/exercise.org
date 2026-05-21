@@ -2089,6 +2089,158 @@ To encode a symbol, procedure in 2.68 needs steps which grows as $\Theta$(n) for
 
 * chapter 2.4: Multiple Representaions of Abstraction Data
 
+** 2.73
+
+#+begin_src racket :results none
+(define (deriv expr var)
+  (cond [(number? expr) 0]
+        [(variable? expr) (if (same-variable? expr var) 0 1)]
+        [else ((get `deriv (operator expr)) (operand expr)
+                                            var)]))
+
+(define operator car)
+(define operand cdr)
+#+end_src
+
+a) We can not put the `number?` and `same-variable?` into the dispatch logic, since we can't use `operator`(car) or `operand`(cdr) to get the operator of the expression. We can change the abstraction of `operator` and `operand` to achive this, but it's not an intuitive implemention.
+b) c)
+   #+begin_src racket :results none
+(define (install-add-deriv-package)
+  (define addend car)
+  (define augend cadr)
+  (define (deriv-sum operands var)
+    (make-sum (deriv (addend operands) var)
+              (deriv (augend operands) var)))
+
+  (put 'deriv '+ deriv-sum)
+  'done)
+
+(define (install-mul-deriv-package)
+  (define multiplier car)
+  (define multiplicand cadr)
+  (define (deriv-product operands var)
+    (let ([u (multiplier expr)]
+          [v (multiplicand expr)]
+          [make-sum (get 'make '+)])
+      (make-sum (make-product u (deriv v var))
+                (make-product v (deriv u var)))))
+
+  (put 'deriv '* deriv-product)
+  'done)
+
+(define (install-exponent-deriv-package)
+  (define base car)
+  (define exponent cadr)
+  (define (deriv-exponentiation operands var)
+    (let ([b (base expr)]
+          [n (exponent expr)]
+          [make-sum (get 'make '+)]
+          [make-product (get 'make '*)])
+      (make-product n (make-product (make-exponentiation b (make-sum n -1))
+                                    (deriv b var)))))
+
+  (put 'deriv '** deriv-exponentiation)
+  'done)
+   #+end_src
+d) Change the implementation of `get`, and change the parameter order of functions in the packages.
+
+** 2.74
+
+#+begin_src racket :results none
+;<<func>>
+;<<filt>>
+(define divisions
+  '(div1 div2 div3))
+
+(define (make-record id name address salary)
+  (list id name address salary))
+
+(define (get-record division record)
+  ((get 'get-record division) record))
+(define (get-salary division id)
+  ((get 'get-salary division) id))
+(define (find-employee-record name divs)
+  (filter (compose not null?)
+          (map
+           (lambda (div) ((get 'find-employee-record div) name))
+           divs)))
+
+(define (divsion-pakcage-example)
+  (define (get-record record)
+    nil ; implementation
+    )
+  (define (get-salary id)
+    nil ; implementation
+    )
+  (define (find-employee-record name)
+    nil ; implementation
+    )
+
+  (put 'get-record 'this-division-id get-record)
+  (put 'get-salary 'this-division-id get-salary)
+  (put 'find-employee-record 'this-division-id find-employee-record)
+  'done)
+#+end_src
+
+ a) One division must implement a package like the `divsion-pakcage-example`. And the `get-record` procedure in each division must fit the input of the `get-record` parameter structure.
+ b) The structure of return value of 'get-salary' procedure should be defined (e.g. `(salary-value)` or `(id salary-value)`).
+ c) See above `find-employee-record`.
+ d) A new division should be added to the 'divisions', and use a new package of this division, when Insatiable takes over a new company
+
+** 2.75
+
+#+begin_src racket
+(define (make-from-mag-ang r a)
+  (define (dispatch op)
+    (cond [(eq? op 'real-part) (* r (cos a))]
+          [(eq? op 'imag-part) (* r (sin a))]
+          [(eq? op 'magnitude) r]
+          [(eq? op 'angle) a]
+          [else (error "Unknown op -- MAKE-FROM-MAG-ANG" op)]))
+  dispatch)
+#+end_src
+
+** 2.76
+
+Message-passing is most appropriate for systems which new types must be often added, because the addition of new type do not effect other implementations and the top calling(dispatcch) parts. Explicit dispatching is most appropriate for systems which new operations must often be added, because the addition of operation do not effect other parts.
+
+Thus that the data-directied strategy is the most inflexible one.
+
+|----------------+-----------------+-----------------------|
+| operation\type | Polar           | Rectangular           |
+|----------------+-----------------+-----------------------|
+| real-part      | real-part-polar | real-part-rectangular |
+|----------------+-----------------+-----------------------|
+| imag-part      | imag-part-polar | imag-part-rectangular |
+|----------------+-----------------+-----------------------|
+| magnitude      | magnitude-polar | magnitude-rectangular |
+|----------------+-----------------+-----------------------|
+| angle          | angle-polar     | angle-rectangular     |
+|----------------+-----------------+-----------------------|
+Figure 2.22
+
+Observe that this below form
+
+|----------------+-----------------+-----------------------|
+| real-part      | real-part-polar | real-part-rectangular |
+|----------------+-----------------+-----------------------|
+
+is a explicit-dispatch operation, and this below form
+
+|-----------------|
+| Polar           |
+|-----------------|
+| real-part-polar |
+|-----------------|
+| imag-part-polar |
+|-----------------|
+| magnitude-polar |
+|-----------------|
+| angle-polar     |
+|-----------------|
+
+is a object in message-passing strategy.
+
 * chapter 2.5: Systems with Generic Operations
 
 * OTHER
@@ -2102,6 +2254,19 @@ To encode a symbol, procedure in 2.68 needs steps which grows as $\Theta$(n) for
 #+begin_src racket :results none
 (define (compose f g) (lambda (x) (f (g x))))
 (define (flip f2) (lambda (x y) (f2 y x)))
+#+end_src
+
+#+NAME: filt
+#+begin_src racket :noweb yes
+;<<fold>>
+(define (filter f seq)
+  (fold-right (lambda (x acc) (if (f x) (cons x acc) acc)) nil seq))
+
+(define (split2 op seq)
+  (fold-right (lambda (x acc)
+                (if (op x) (cons x (car acc))
+                    (cons x (cadr acc))))
+              (list nil nil) seq))
 #+end_src
 
 
