@@ -178,8 +178,8 @@ src_lisp[:exports code]{(cdr (cons 1 2)) => (cdr (lambda (m) (m 1 2))) => ((lamb
 (define (add m n) (lambda f) (lambda (x) ((m f) ((n f) x))))
 #+end_src
 
-The expr in add <src_racket[:exports code]{(m f) => (lambda (y) (f (f ... (f y))))} (has the number of m of the "f"),
-and the expr <src_racket[:exports code]{((m f) ((n f) x)) => (f (f ... (f (f_ (f_ ... (f_ x))))))}.
+The expr in add src_racket[:exports code]{(m f) => (lambda (y) (f (f ... (f y))))} (has the number of m of the "f"),
+and the expr src_racket[:exports code]{((m f) ((n f) x)) => (f (f ... (f (f_ (f_ ... (f_ x))))))}.
 
 ** 2.7, 2.8
 
@@ -297,7 +297,7 @@ According to my example of interval calc $x \cdot y$, there are 3 special points
 | (>1, >1)           | .          | .              | .                  | .                | .            | (ll, hh) |
 |--------------------+------------+----------------+--------------------+------------------+--------------+----------|
 
-Ex. (hl, lh) means <src_racket[:exports code]{(make-interval (* (upper-bound x) (lower-bound y)) (* (lower-bound x) (upper-bound y)))}.
+Ex. (hl, lh) means src_racket[:exports code]{(make-interval (* (upper-bound x) (lower-bound y)) (* (lower-bound x) (upper-bound y)))}.
 
 It seems that 1 and -1 make no difference...
 
@@ -468,15 +468,15 @@ $\frac {p_x + p_y} {p_xp_y + 1} > p_x = \frac {p_x^2p_y + p_x} {p_xp_y + 1}$, th
 
 The add and the mul makes error larger.
 
-The less calculation is better, so <src_racket[:exports code]{part2} is better.
+The less calculation is better, so src_racket[:exports code]{part2} is better.
 
 ** 2.16
 
 Well, the formula itself doesn't change when deformation. So the issue happens on implementation.
 
-<src_racket[:exports code]{(part1 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 9) (2 . 6)) => (1/6 . 4.5)}.
+src_racket[:exports code]{(part1 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 9) (2 . 6)) => (1/6 . 4.5)}.
 
-<src_racket[:exports code]{(part2 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 1) (add-interval (1/3 . 1) (1/3 . 1))) => (1/2 . 3/2)}.
+src_racket[:exports code]{(part2 (make-interval 1 3) (make-interval 1 3)) => (div-interval (1 . 1) (add-interval (1/3 . 1) (1/3 . 1))) => (1/2 . 3/2)}.
 
 It is proved that add-interval and mul-interval generates error differently, so the order of the evaluation matters.
 
@@ -622,7 +622,7 @@ See my implementation in 2.20, which use the `reverse` function after the iterat
 
 ** 2.24
 
-<src_racket[:exports code]{(list 1 (list 2 (list 3 4))) => (1 (2 (3 4)))}. Root: 1, child: 2; root: 2, child 3, 4.
+src_racket[:exports code]{(list 1 (list 2 (list 3 4))) => (1 (2 (3 4)))}. Root: 1, child: 2; root: 2, child 3, 4.
 
 #+begin_src racket
 (list 1 (list 2 (list 3 4)))
@@ -1433,11 +1433,22 @@ These to accumulates to T(k) = F(1) + F(2) + ... + F(k) and T'(k) = F(1) * F(2) 
 #+RESULTS:
 : quote
 
-<src_racket[:exports code]{(car ''abracadabra) => (car (quote 'abracadabra)) => quote}
+src_racket[:exports code]{(car ''abracadabra) => (car (quote 'abracadabra)) => quote}
 
 ** 2.56 - 2.57
 
+#+NAME: symbolic
 #+begin_src racket
+(define variable? symbol?)
+(define (same-variable? v1 v2)
+  (and (variable? v1) (variable? v2) (eq? v1 v2)))
+(define (=number? expr num)
+  (and (number? expr) (= expr num)))
+#+end_src
+
+
+#+begin_src racket :noweb yes
+;<<symbolic>>
 (define (deriv expr var)
   (cond [(number? expr) 0]
         [(variable? expr)
@@ -1455,12 +1466,6 @@ These to accumulates to T(k) = F(1) + F(2) + ... + F(k) and T'(k) = F(1) * F(2) 
            (make-product n (make-product (make-exponentiation b (make-sum n -1))
                                          (deriv b var))))]
         [else (error "unknown expression type -- DERIV" expr)]))
-
-(define variable? symbol?)
-(define (same-variable? v1 v2)
-  (and (variable? v1) (variable? v2) (eq? v1 v2)))
-(define (=number? expr num)
-  (and (number? expr) (= expr num)))
 
 ; 2.57
 (define (make-sum a b)
@@ -1519,24 +1524,11 @@ These to accumulates to T(k) = F(1) + F(2) + ... + F(k) and T'(k) = F(1) * F(2) 
 : (+ 1 (+ (* x (+ x x)) (* x x)))
 : (#<void> #<void> #<void> #<void>)
 
-#+RESULTS: deriv
-: (+ 1 (+ x x))
-: (* 3 (* (* 3 a) (** x (+ (* 3 a) -1))))
-: (+ (+ 1 (+ x x)) 1)
-: (+ 1 (+ (* x (+ x x)) (* x x)))
-: (#<void> #<void> #<void> #<void>)
-
-#+RESULTS:
-: (+ 1 (+ x x))
-: (* 3 (* (* 3 a) (** x (+ (* 3 a) -1))))
-: (+ (+ 1 (+ x x)) 1)
-: (+ 1 (+ (* x (+ x x)) (* x x)))
-: (#<void> #<void> #<void> #<void>)
-
 ** 2.58
 
 #+NAME: deriv
-#+begin_src racket
+#+begin_src racket :noweb yes
+;<<symbolic>>
 (define (deriv expr var)
   (cond [(number? expr) 0]
         [(variable? expr)
@@ -1549,12 +1541,6 @@ These to accumulates to T(k) = F(1) + F(2) + ... + F(k) and T'(k) = F(1) * F(2) 
            (make-sum (make-product u (deriv v var))
                      (make-product v (deriv u var))))]
         [else (error "unknown expression type -- DERIV" expr)]))
-
-(define variable? symbol?)
-(define (same-variable? v1 v2)
-  (and (variable? v1) (variable? v2) (eq? v1 v2)))
-(define (=number? expr num)
-  (and (number? expr) (= expr num)))
 #+end_src
 
 #+begin_src racket :noweb yes
@@ -2091,6 +2077,8 @@ To encode a symbol, procedure in 2.68 needs steps which grows as $\Theta$(n) for
 
 ** 2.73
 
+# I can't run these codes because I do not have the implementation of `get` and `put`...
+
 #+begin_src racket :results none
 (define (deriv expr var)
   (cond [(number? expr) 0]
@@ -2225,6 +2213,13 @@ Observe that this below form
 | real-part      | real-part-polar | real-part-rectangular |
 |----------------+-----------------+-----------------------|
 
+#+begin_src racket
+(define (real-part x)
+  (cond [(eq? 'polar (type-tag x)) do-something]
+        [(eq? 'rectangular (type-tag x)) do-other-thing]
+        [else (error "Unknown complex number type -- REAL-PART" x)]))
+#+end_src
+
 is a explicit-dispatch operation, and this below form
 
 |-----------------|
@@ -2239,9 +2234,538 @@ is a explicit-dispatch operation, and this below form
 | angle-polar     |
 |-----------------|
 
-is a object in message-passing strategy.
+is a object in message-passing strategy (example see Exercise 2.75).
 
 * chapter 2.5: Systems with Generic Operations
+
+** 2.77
+
+#+begin_src racket
+(define (attach-tag type-tag contents)
+  (cons type-tag contents))
+
+(define (type-tag datum)
+  (if (pair? datum)
+      (car datum)
+      (error "Bad tagged datum -- TYPE-TAG" datum)))
+
+(define (contents datum)
+  (if (pair? datum)
+      (cdr datum)
+      (error "Bad tagged datum -- CONTENTS" datum)))
+
+(define (apply-generic op . args)
+  (let ([type-tags (map type-tag args)])
+    (let ([proc (get op type-tags)])
+      (if proc
+          (apply proc (map contents args))
+          (error "No method for these types -- APPLY-GENERIC"
+                 (list op type-tags))))))
+
+(define (install-rectangular-package)
+  ;; internal procedures
+  (define (real-part z) (car z))
+  (define (imag-part z) (cdr z))
+  (define (make-from-real-imag x y) (cons x y))
+  (define (magnitude z)
+    (sqrt (+ (square (real-part z))
+             (square (imag-part z)))))
+  (define (angle z)
+    (atan (imag-part z) (real-part z)))
+  (define (make-from-mag-ang r a)
+    (cons (* r (cos a)) (* r (sin a))))
+  ;; interface to the rest of the system
+  (define (tag x) (attach-tag 'rectangular x))
+  (put 'real-part '(rectangular) real-part)
+  (put 'imag-part '(rectangular) imag-part)
+  (put 'magnitude '(rectangular) magnitude)
+  (put 'angle '(rectangular) angle)
+  (put 'make-from-real-imag 'rectangular
+       (lambda (x y) (tag (make-from-real-imag x y))))
+  (put 'make-from-mag-ang 'rectangular
+       (lambda (r a) (tag (make-from-mag-ang r a))))
+  'done)
+
+(define (install-polar-package)
+  ;; internal procedures
+  (define (magnitude z) (car z))
+  (define (angle z) (cdr z))
+  (define (make-from-mag-ang r a) (cons r a))
+  (define (real-part z)
+    (* (magnitude z) (cos (angle z))))
+  (define (imag-part z)
+    (* (magnitude z) (sin (angle z))))
+  (define (make-from-real-imag x y)
+    (cons (sqrt (+ (square x) (square y)))
+          (atan y x)))
+
+  ;; interface to the rest of the system
+  (define (tag x) (attach-tag 'polar x))
+  (put 'real-part '(polar) real-part)
+  (put 'imag-part '(polar) imag-part)
+  (put 'magnitude '(polar) magnitude)
+  (put 'angle '(polar) angle)
+  (put 'make-from-real-imag 'polar
+       (lambda (x y) (tag (make-from-real-imag x y))))
+  (put 'make-from-mag-ang 'polar
+       (lambda (r a) (tag (make-from-mag-ang r a))))
+  'done)
+
+(define (real-part z) (apply-generic 'real-part z))
+(define (imag-part z) (apply-generic 'imag-part z))
+(define (magnitude z) (apply-generic 'magnitude z))
+(define (angle z) (apply-generic 'angle z))
+
+(define (install-complex-package)
+  ;; imported procedures from rectangular and polar packages
+  (define (make-from-real-imag x y)
+    ((get 'make-from-real-imag 'rectangular) x y))
+  (define (make-from-mag-ang r a)
+    ((get 'make-from-mag-ang 'polar) r a))
+
+  ;; internal procedures
+  (define (add-complex z1 z2)
+    (make-from-real-imag (+ (real-part z1) (real-part z2))
+                         (+ (imag-part z1) (imag-part z2))))
+  (define (sub-complex z1 z2)
+    (make-from-real-imag (- (real-part z1) (real-part z2))
+                         (- (imag-part z1) (imag-part z2))))
+  (define (mul-complex z1 z2)
+    (make-from-mag-ang (* (magnitude z1) (magnitude z2))
+                       (+ (angle z1) (angle z2))))
+  (define (div-complex z1 z2)
+    (make-from-mag-ang (/ (magnitude z1) (magnitude z2))
+                       (- (angle z1) (angle z2))))
+
+  ;; interface to rest of the system
+  (define (tag z) (attach-tag 'complex z))
+  (put 'add '(complex complex)
+       (lambda (z1 z2) (tag (add-complex z1 z2))))
+  (put 'sub '(complex complex)
+       (lambda (z1 z2) (tag (sub-complex z1 z2))))
+  (put 'mul '(complex complex)
+       (lambda (z1 z2) (tag (mul-complex z1 z2))))
+  (put 'div '(complex complex)
+       (lambda (z1 z2) (tag (div-complex z1 z2))))
+  (put 'make-from-real-imag 'complex
+       (lambda (x y) (tag (make-from-real-imag x y))))
+  (put 'make-from-mag-ang 'complex
+       (lambda (r a) (tag (make-from-mag-ang r a))))
+
+  (put 'real-part '(complex) real-part) ; HERE 2.77
+  (put 'imag-part '(complex) imag-part)
+  (put 'magnitude '(complex) magnitude)
+  (put 'angle '(complex) angle)
+  'done)
+
+(define (make-complex-from-real-imag x y)
+  ((get 'make-from-real-imag 'complex) x y))
+(define (make-complex-from-mag-ang r a)
+  ((get 'make-from-mag-ang 'complex) r a))
+#+end_src
+
+src_racket[:exports code]{(magnitude z) => (apply-generic 'magnitude ('complex 'rectangular 3 4)) => (apply (get 'magnitude '(complex)) ('rectangular 3 4)) => (apply magnitude ('rectangular 3 4)) => (apply-generic 'magnitude ('rectangular 3 4)) => (apply (get 'magnitude '(rectangular)) ('rectangular 3 4)) => 5}.
+
+** 2.78
+
+#+NAME: tag-construction
+#+begin_src racket :results none
+(define (attach-tag type-tag contents)
+  (if (number? contents) contents
+      (cons type-tag contents)))
+
+(define (type-tag datum)
+  (cond [(pair? datum) (car datum)]
+        [(number? datum) datum]
+        [else (error "Bad tagged datum -- TYPE-TAG" datum)]))
+
+(define (contents datum)
+  (cond [(pair? datum) (cdr datum)]
+        [(number? datum) datum]
+        [else (error "Bad tagged datum -- CONTENTS" datum)]))
+#+end_src
+
+** 2.79
+
+#+begin_src racket :results none
+(define (install-rational-package)
+  (define (numer x) (car x))
+  (define (denom x) (cdr x))
+  ; -- snip --
+  (define (equ? x y)
+    (and (eq? (numer x) (numer y))
+         (eq? (denom x) (denom y))))
+
+  ; -- snip --
+  (put 'equ? 'rational equ?)
+  'done)
+
+(define (install-scheme-number-package)
+  ; -- snip --
+  (put 'equ? 'scheme-number eq?)
+  'done)
+
+(define (install-polar-package)
+  ; -- snip --
+  (define (equ? x y)
+    (and (eq? (magnitude x) (magnitude y))
+         (eq? (angle x) (angle y))))
+
+  ; -- snip --
+  (put 'equ? 'polar equ?)
+  'done)
+
+(define (install-rectangular-package)
+  ; -- snip --
+  (define (equ? x y)
+    (and (eq? (real-part x) (real-part y))
+         (eq? (imag-part x) (imag-part y))))
+
+  ; -- snip --
+  (put 'equ? 'rectangular equ?)
+  'done)
+
+(define (install-complex-package)
+  ; -- snip --
+  (put 'equ? 'complex equ?) ; use top level to dispatch inner type
+  'done)
+
+(define (equ? a b)
+  (apply-generic 'equ? a b))
+#+end_src
+
+** 2.80
+
+*** 1
+#+begin_src racket :results none
+(define (install-rational-package)
+  (define (numer x) (car x))
+  (define (denom x) (cdr x))
+  ; -- snip --
+  (define (=zero? x)
+    (eq? 0 (numer x)))
+
+  ; -- snip --
+  (put '=zero? 'rational =zero?)
+  'done)
+
+(define (install-scheme-number-package)
+  ; -- snip --
+  (put '=zero? 'scheme-number zero?)
+  'done)
+
+(define (install-polar-package)
+  ; -- snip --
+  (define (=zero? x)
+    (zero? (magnitude x)))
+
+  ; -- snip --
+  (put '=zero? 'polar =zero?)
+  'done)
+
+(define (install-rectangular-package)
+  ; -- snip --
+  (define (=zero? x)
+    (and (zero? (real-part x))
+         (zero? (imag-part x))))
+
+  ; -- snip --
+  (put '=zero? 'rectangular =zero?)
+  'done)
+
+(define (install-complex-package)
+  ; -- snip --
+  (put '=zero? 'complex =zero?) ; use top level to dispatch inner type
+  'done)
+
+(define (=zero? x)
+  (apply-generic '=zero? x))
+#+end_src
+
+*** 2
+
+Well, I found another solution:
+
+#+begin_src racket :results none
+(define (=zero?-package)
+  (put '=zero? 'scheme-number zero?)
+  (put '=zero? 'rational
+       (lambda (x) (zero? (numer x))))
+  (put '=zero? 'angle
+       (lambda (x) (zero? (magnitude x))))
+  (put '=zero? 'tectangular
+       (lambda (x) (and (zero? (real-part x))
+                        (zero? (imag-part x)))))
+  (put '=zero? 'complex =zero?)
+  'done)
+
+(define (=zero? x) (apply-generic '=zero? x))
+#+end_src
+
+
+** 2.81
+
+#+begin_src racket :noweb yes :results none
+;<<tag-construction>>
+(define (apply-generic op . args)
+  (let ([type-tags (map type-tag args)])
+    (let ([proc (get op type-tags)])
+      (if proc
+          (apply proc (map contents args))
+          (if (= (length args) 2)
+              (let ([type1 (car type-tags)]
+                    [type2 (cadr type-tags)]
+                    [a1 (car args)]
+                    [a2 (cadr args)])
+                (let ([t1->t2 (get-coercion type1 type2)]
+                      [t2->t1 (get-coercion type2 type1)])
+                  (cond [t1->t2 (apply-generic op (t1->t2 a1) a2)]
+                        [t2->t1 (apply-generic op a1 (t2->t1 a2))]
+                        [else
+                         (error "No method for these types -- APPLY-GENERIC" (list op args))])))
+              (error "No method -- APPLY-GENERIC" (list op args)))))))
+#+end_src
+
+#+begin_src racket :noweb yes :results none
+;<<func>>
+(define complex->complex id)
+(put-coercion 'scheme-number 'scheme-number id)
+(put-coercion 'complex 'complex complex->complex)
+#+end_src
+
+a) If a `exp` procedure is added into `scheme-number` package but `complex-package`, call the `apply-generic` for `exp` with two complex number will be:
+
+   #+begin_src racket :results none
+(apply-generic 'exp x y)
+=> (apply-generic 'exp (cons 'complex inner1) (cons 'complex inner2))
+=> (apply-generic 'exp (complex->complex x) y)
+=> (apply-generic 'exp x y)
+   #+end_src
+
+   This leads to an endless recusion calling.
+
+b) So this(define type transform procedure to itself's type) doesn't solve the problem. A strategy is not to define these kind of thing. But this is still the weakness of the system.
+
+c) below:
+
+   #+begin_src racket :noweb yes :results none
+;<<tag-construction>>
+(define (apply-generic op . args)
+  (define (error-no-method)
+    (error "No method for these types -- APPLY-GENERIC" (list op args)))
+  (let ([type-tags (map type-tag args)])
+    (let ([proc (get op type-tags)])
+      (if proc
+          (apply proc (map contents args))
+          (if (= (length args) 2)
+              (let ([type1 (car type-tags)]
+                    [type2 (cadr type-tags)]
+                    [a1 (car args)]
+                    [a2 (cadr args)])
+                (let ([t1->t2 (get-coercion type1 type2)]
+                      [t2->t1 (get-coercion type2 type1)])
+                  (cond [(eq? type1 type2) (error-no-method)]
+                        [t1->t2 (apply-generic op (t1->t2 a1) a2)]
+                        [t2->t1 (apply-generic op a1 (t2->t1 a2))]
+                        [else (error-no-method)])))
+              (error-no-method))))))
+   #+end_src
+
+** 2.82
+
+#+begin_src racket :noweb yes :results none
+;<<tag-construction>>
+(define (transform-types type args)
+  (let ([trans (get-coercion (type-tag (car args)) type)])
+    (if (not trans)
+        #f
+        (let ([sub (transform-types type (cdr args))])
+          (if sub
+              (cons (trans (car args)) sub)
+              #f)))))
+
+(define (apply-generic op . args)
+  (define (error-no-method)
+    (error "No method for these types -- APPLY-GENERIC" (list op args)))
+  (let ([type-tags (map type-tag args)])
+    (let ([proc (get op type-tags)])
+      (if proc
+          (apply proc (map contents args))
+          (let ([transformed-rest-args (transform-types (car type-tags) (cdr args))])
+            (if transformed-rest-args
+                (apply apply-generic (list op (cons (car args) transformed-rest-args)))
+                (error-no-method)))))))
+#+end_src
+
+This strategy is not sufficiently general. E.x. `(apply-generic magnitude (make-scheme-number 1) (make-complex-from-real-imag 1 1))` in Exercise 2.82 raises an error while works in Exercise 2.81.
+
+** 2.83
+
+#+begin_src racket :results none
+(define (install-complex-package)
+  ; -- snip --
+
+  (define (raise x) x)
+  ; (put 'raise 'complex raise)
+  'done)
+
+(define (install-real-package)
+  ; -- snip --
+  (define (real x) x)
+  (define (raise x)
+    (make-complex-real-imag (real x) 0))
+  (put 'raise 'real raise)
+  'done)
+
+(define (install-rational-package)
+  ; -- snip --
+  (define (raise x)
+    (make-real (/ (numer x) (denom x))))
+  (put 'raise 'rational raise)
+  'done)
+
+(define (install-integer)
+  ; -- snip --
+  (define (integer x) x)
+  (define (raise x)
+    (make-rational x 1))
+  (put 'raise 'integer raise)
+  'done)
+
+(define (raise x) (apply-generic 'raise x))
+#+end_src
+
+*** draft
+
+I prefer these below:
+
+#+NAME: tower-of-types
+#+begin_src racket :noweb yes :results none
+;<<fold>>
+; the right type in the list is supertype of the lefts.
+(define tower-of-types
+  (list 'scheme-number 'rational 'real 'complex))
+
+(define (supertype-of? supertype type tower)
+  (and (memq supertype (memq type tower)) #t))
+
+(define (supertype types tower)
+  (car (fold-right (lambda (x acc) (or (memq x acc) acc)) tower types)))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<tower-of-types>>
+(list
+ (supertype-of? 'rational 'complex tower-of-types)
+ (supertype-of? 'complex 'rational tower-of-types)
+ (supertype (list 'scheme-number 'complex) tower-of-types)
+ (supertype (list 'rational 'scheme-number) tower-of-types)
+ )
+#+end_src
+
+#+RESULTS:
+: (#f #t complex rational)
+
+#+NAME: raise
+#+begin_src racket :results none
+(define (transform v type)
+  (let ([trans (get-coercion (type-tag v) type)])
+    (if trans
+        (trans v)
+        (error "Can't transform type -- TRANSOFRM" (list v type)))))
+
+(define (raise v tower)
+  (let ([supertypes (cdr (memq (type-tag v) tower))])
+    (if (null? supertypes)
+        v
+        (transform v (car supertypes)))))
+#+end_src
+
+** 2.84
+
+#+begin_src racket :noweb yes :results none
+;<<tag-construction>>
+;<<tower-of-types>>
+;<<filt>>
+(define (raise-until x type tower)
+  (define (iter x type)
+    (if (eq? (type-tag x) type)
+        x
+        (raise-until (raise x) type)))
+  (if (supertype-of? type (type-tag x) tower)
+      (iter x type)
+      (error "Can't raise type -- RAISE-UNTIL" (list x type))))
+
+(define (apply-generic op . args)
+  (define (error-no-method)
+    (error "No method for these types -- APPLY-GENERIC" (list op args)))
+  (let ([type-tags (map type-tag args)])
+    (let ([proc (get op type-tags)])
+      (if proc
+          (apply proc (map contents args))
+          (let ([super (supertype type-tags tower-of-types)])
+            (apply apply-generic
+                   (list op
+                         (map contents
+                              (map
+                               (lambda (x) (raise-until x super tower-of-types))
+                               args)))))))))
+#+end_src
+
+** 2.85
+
+#+begin_src racket :results none
+(define (approximate-rational float)
+  (define (try-raise-limited num precision multiplier)
+    (cond [(= precision 0) (cons (round num) multiplier)]
+          [(= (- num (round num)) 0.0) (cons (round num) multiplier)]
+          [else (try-raise-limited (* num 10) (dec precision) (* multiplier 10))]))
+  (try-raise-limited float 16 1))
+
+(define (install-complex-package)
+  ; -- snip --
+
+  (define (project x) (make-real (real-part x)))
+  (put 'project 'complex project)
+  'done)
+
+(define (install-real-package)
+  ; -- snip --
+  (define (real x) x)
+  (define (project x)
+    (let ([res (approximate-rational (real x))])
+      (make-rational (car res) (cdr res))))
+  (put 'project 'real project)
+  'done)
+
+(define (install-rational-package)
+  ; -- snip --
+  (define (project x)
+    (make-integer (round (/ (numer x) (denom x)))))
+  (put 'project 'rational project)
+  'done)
+
+(define (install-integer)
+  ; -- snip --
+  (define (integer x) x)
+  (define project id)
+  (put 'project 'integer project)
+  'done)
+
+(define (project x) (apply-generic 'project x))
+(define (drop x)
+  (let ([projected (project x)])
+    (if (equ? (raise projected) x) projected x)))
+
+(define (new-apply-generic op args)
+  (drop (apply-generic op args)))
+#+end_src
+
+** 2.86
+
+Take src_racket[:exports code]{(define (real-part z) (* (magnitude z) (cos (angle z))))} in `install-polar-package` as an expamle. The `*` and `cos` procedure are not general, so I should create  new generic procedures(`mul`, `cos-general`) and modify all the other procedures which use procedures not general. src_racket[:exports code]{(define (real-part z) (mul (magnitude z) (cos-general (angle z))))}
+
+#+TODO: rest exercises
 
 * OTHER
 
@@ -2252,6 +2776,7 @@ is a object in message-passing strategy.
 
 #+NAME: func
 #+begin_src racket :results none
+(define (id x) x)
 (define (compose f g) (lambda (x) (f (g x))))
 (define (flip f2) (lambda (x y) (f2 y x)))
 #+end_src

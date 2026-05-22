@@ -1,3 +1,6 @@
 #+title: Readme
 
-My notes of SICP v2.
+My notes of Structure and Interpretation of Computer Procedures(SICP) v2.
+
+
+TODO: Exercises in 2.5.3 Symbolic Algebra
