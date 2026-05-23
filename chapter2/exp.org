@@ -1,4 +1,4 @@
-#+title: Exercise
+#+title: Example
 #+property: header-args:racket :lang sicp
 #+STARTUP: latexpreview
 #+OPTIONS: tex:t

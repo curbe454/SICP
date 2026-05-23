@@ -1,0 +1,63 @@
+#+title: Example
+#+property: header-args:racket :lang sicp
+#+STARTUP: latexpreview
+#+OPTIONS: tex:t
+
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
+
+* 3.1 Assignment and Local State
+
+** Local State Variables
+
+#+begin_src racket
+(define (make-withdraw balance)
+  (lambda (amount)
+    (if (<= amount balance)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds")))
+
+nil
+
+(define W1 (make-withdraw 100))
+
+(list
+ (W1 30)
+ (W1 20)
+ (W1 50)
+ (W1 1))
+#+end_src
+
+#+RESULTS:
+: (70 50 0 "Insufficient funds")
+
+#+begin_src racket
+(define (make-account balance)
+  (define (withdraw amount)
+      (if (<= amount balance)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (define (dispatch op)
+    (cond [(eq? op 'withdraw) withdraw]
+          [(eq? op 'deposit) deposit]
+          [else (error "Unknown request -- MAKE-ACCOUNT" op)]))
+  dispatch)
+
+nil
+(define acc (make-account 0))
+
+(list
+ ((acc 'deposit) 100)
+ ((acc 'withdraw) 20)
+ ((acc 'withdraw) 100))
+#+end_src
+
+#+RESULTS:
+: (100 80 "Insufficient funds")

@@ -1,0 +1,317 @@
+#+title: Exercise
+#+property: header-args:racket :lang sicp
+#+OPTIONS: tex:t
+#+STARTUP: latexpreview
+
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
+
+* 3.1 Assignment and Local State
+
+** 3.1
+
+#+begin_src racket
+(define (make-accumulator sum)
+  (lambda (addend)
+    (set! sum (+ sum addend))
+    sum))
+
+nil
+(define A (make-accumulator 5))
+
+(list
+ (A 10)
+ (A 10))
+#+end_src
+
+#+RESULTS:
+: (15 25)
+
+** 3.2
+
+#+begin_src racket
+(define (list-single-of? el lst)
+  (and (eq? (car lst) el) (null? (cdr lst))))
+
+(define (make-monitored f)
+  (define called 0)
+  (define (dispatch . args)
+    (cond [(list-single-of? 'how-many-calls args) called]
+          [(list-single-of? 'reset-count args) (begin (set! called 0) 0)]
+          [else (begin (set! called (+ called 1))
+                       (apply f args))]))
+  dispatch)
+
+nil
+(define s (make-monitored sqrt))
+
+(list
+ (s 100)
+ (s 'how-many-calls)
+ (s 100)
+ (s 'how-many-calls)
+ (s 'reset-count))
+#+end_src
+
+#+RESULTS:
+: (10 1 10 2 0)
+
+** 3.3
+
+#+NAME: account-password
+#+begin_src racket
+(define (make-account balance password)
+  (define (withdraw amount)
+    (if (<= amount balance)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (define (dispatch op)
+    (cond [(eq? op 'withdraw) withdraw]
+          [(eq? op 'deposit) deposit]
+          [else (error "Unknown request -- MAKE-ACCOUNT" op)]))
+  (lambda (input op)
+    (if (eq? input password)
+        (dispatch op)
+        "Incorrect password")))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<account-password>>
+nil
+(define acc (make-account 100 'secret-password))
+
+(list
+ ((acc 'secret-password 'withdraw) 40)
+ (acc 'some-other-password 'deposit))
+#+end_src
+
+#+RESULTS:
+: (60 "Incorrect password")
+
+** 3.4
+
+#+begin_src racket :noweb yes
+(define (always res) (lambda _args res))
+
+(define (call-the-cops)
+  "Cops arrived")
+
+(define (make-account balance password)
+  (define rest-chance 7)
+  (define (withdraw amount)
+    (if (<= amount balance)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (define (dispatch op)
+    (cond [(eq? op 'withdraw) withdraw]
+          [(eq? op 'deposit) deposit]
+          [else (error "Unknown request -- MAKE-ACCOUNT" op)]))
+  (lambda (input op)
+    (if (eq? input password)
+        (begin (set! rest-chance 7)
+               (dispatch op))
+        (begin (set! rest-chance (- rest-chance 1))
+               (if (zero? rest-chance)
+                   (always (call-the-cops))
+                   (always "Incorrect password"))))))
+
+nil
+(define acc (make-account 100 'secret-password))
+
+;<<higher-order>>
+(list
+ ((acc 'secret-password 'withdraw) 40)
+ ((repeat 7 (lambda () ((acc 'some-other-password 'deposit) 50))))
+ )
+#+end_src
+
+#+RESULTS:
+: (60 ("Incorrect password" "Incorrect password" "Incorrect password" "Incorrect password" "Incorrect password" "Incorrect password" "Cops arrived"))
+
+** 3.5
+
+#+NAME: monte-carlo
+#+begin_src racket
+(define (monte-carlo trials experiment)
+  (define (iter trials-remaining trials-passed)
+    (cond [(zero? trials-remaining) (/ trials-passed trials)]
+          [(experiment) (iter (- trials-remaining 1) (+ trials-passed 1))]
+          [else (iter (- trials-remaining 1) trials-passed)]))
+  (iter trials 0))
+#+end_src
+
+
+#+begin_src racket :noweb yes
+;<<square>>
+;<<monte-carlo>>
+(define (random-f int . precisions)
+  (define default-precision 1000000)
+  (define (random-by-precision precision)
+    (* int (/ (random precision) precision)))
+  (if (null? precisions)
+      (random-by-precision default-precision)
+      (map random-by-precision precisions)))
+
+(define (random-in-range low high)
+  (let ([range (- high low)])
+    (+ low (random-f range))))
+
+(define (estimate-integral p x1 x2 y1 y2 trials)
+  (define (random-point x1 x2 y1 y2)
+    (cond [(> x1 x2) (random-point x2 x1 y1 y2)]
+          [(> y1 y2) (random-point x1 x2 y2 y1)]
+          [else (list (random-in-range x1 x2)
+                      (random-in-range y1 y2))]))
+  (define (experiment)
+    (apply p (random-point x1 x2 y1 y2)))
+  (monte-carlo trials experiment))
+
+(define (estimate-pi trials)
+  (define (p x y)
+    (<= (+ (square (- x 5)) (square (- y 7)))
+        (square 3)))
+  ; (πr^2) / (2r * 2r) = π / 4
+  (let ([quarter-of-pi (estimate-integral p 2 8 4 10 trials)])
+    (* 4 quarter-of-pi)))
+
+(* 1.0 (estimate-pi 100000))
+#+end_src
+
+#+RESULTS:
+: 3.13584
+
+** 3.6
+
+#+begin_src racket
+(define random-init 65537)
+(define rand-update random)
+
+(define (rand op)
+  (define seed random-init)
+  (cond [(eq? op 'generate)
+         (begin (set! seed (rand-update seed))
+                seed)]
+        [(eq? op 'reset)
+         (lambda (new-seed) (begin (set! seed new-seed)
+                                   seed))]))
+
+(list
+ (rand 'generate)
+ (rand 'generate)
+ ((rand 'reset) 42)
+ )
+#+end_src
+
+#+RESULTS:
+: (61533 6785 42)
+
+** 3.7
+
+#+begin_src racket :noweb yes
+;<<account-password>>
+(define (make-joint account password new-password)
+  (define (correct-password?)
+    (not (string? (account password 'deposit))))
+  (if (correct-password?)
+      (lambda (input op)
+        (if (eq? input new-password)
+            (account password op)
+            "Incorrect password"))
+      "Invalid account"))
+
+nil
+(define peter-acc (make-account 100 'open-sesame))
+(define paul-acc (make-joint peter-acc 'open-sesame 'rosebud))
+(define a-third-acc (make-joint paul-acc 'rosebud 'a-third)) ; a-third-acc -> paul-acc -> peter-acc
+(define invalid-acc (make-joint peter-acc 'other 'newpasswd))
+
+(list
+ ((peter-acc 'open-sesame 'withdraw) 10)
+ ((paul-acc 'rosebud 'withdraw) 0)
+ ((a-third-acc 'a-third 'withdraw) 0)
+ (paul-acc 'aaa 'withdraw)
+ invalid-acc
+)
+#+end_src
+
+#+RESULTS:
+: (90 90 90 "Incorrect password" "Invalid account")
+
+** 3.8
+
+Well, the test code in the above exercises are all making use of the sequence of evaluation.
+
+My below answer implements the different evaluation order of arguments. This make use of the speciality of `define`. Actually, my test code which uses `repeat` function also utilize this trick, though it's `lambda` other than `define`.
+
+#+begin_src racket :noweb yes
+(define (plus-left-right proc1 proc2)
+  (+ (proc1) (proc2)))
+
+(define (plus-right-left proc1 proc2)
+  (+ (proc2) (proc1)))
+
+(define (get-and-set x)
+  (lambda (y)
+    (let ([before x])
+      (begin (set! x y)
+             before))))
+
+nil
+
+;<<displayln>>
+(define f1 (get-and-set 0))
+(displayln (plus-left-right (lambda () (f1 0)) (lambda () (f1 1))))
+
+(define f2 (get-and-set 0))
+(displayln (plus-right-left (lambda () (f2 0)) (lambda () (f2 1))))
+#+end_src
+
+#+RESULTS:
+: 0
+: 1
+: #<void>
+
+
+* Helper procedures
+
+#+NAME: higher-order
+#+begin_src racket :results none
+(define (id x) x)
+
+(define (always res) (lambda _args res))
+
+(define (identity . args) args)
+
+(define (compose f g)
+  (lambda args (f (g args))))
+
+(define (repeat n func)
+  (define (iter n acc)
+    (if (= n 1)
+        (lambda args (apply acc args))
+        (iter (- n 1) (lambda args
+                        (cons (apply func args)
+                              (apply acc args))))))
+  (if (<= n 0) identity
+      (iter n (lambda args (list (apply func args))))))
+#+end_src
+
+#+NAME: square
+#+begin_src racket :results none
+(define (square x) (* x x))
+#+end_src
+
+#+NAME: displayln
+#+begin_src racket :results none
+(define (displayln x) (display x) (newline))
+#+end_src
