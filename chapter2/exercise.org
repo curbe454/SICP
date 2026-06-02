@@ -2213,7 +2213,7 @@ Observe that this below form
 | real-part      | real-part-polar | real-part-rectangular |
 |----------------+-----------------+-----------------------|
 
-#+begin_src racket
+#+begin_src racket :results none
 (define (real-part x)
   (cond [(eq? 'polar (type-tag x)) do-something]
         [(eq? 'rectangular (type-tag x)) do-other-thing]

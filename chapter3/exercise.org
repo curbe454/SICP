@@ -3,11 +3,6 @@
 #+OPTIONS: tex:t
 #+STARTUP: latexpreview
 
-# Local Variables:
-# org-babel-noweb-wrap-start: ";<<"
-# org-babel-noweb-wrap-end: ">>"
-# End:
-
 * 3.1 Assignment and Local State
 
 ** 3.1
@@ -281,6 +276,1363 @@ nil
 : 1
 : #<void>
 
+*** macro?
+
+I asked LLM if I can use some machenism to remove the `lambda`s, because I heard there are something about macro and `define-syntax`. Here is it's answer:
+
+#+begin_src racket :noweb yes
+;<<displayln>>
+(define (get-and-set x)
+  (lambda (y)
+    (let ([before x])
+      (begin (set! x y)
+             before))))
+
+(let-syntax ([plus-left-right
+              (syntax-rules ()
+                [(_ a b)
+                 (let ([x a])
+                   (let ([y b])
+                     (+ x y)))])]
+            [plus-right-left
+              (syntax-rules ()
+                [(_ a b)
+                 (let ([y b])
+                   (let ([x a])
+                     (+ x y)))])])
+  (define f1 (get-and-set 0))
+  (displayln (plus-left-right (f1 0) (f1 1)))
+
+  (define f2 (get-and-set 0))
+  (displayln (plus-right-left (f2 0) (f2 1))))
+#+end_src
+
+#+RESULTS:
+: 0
+: 1
+: #<void>
+
+* 3.2 The Environment Model of Evaluation
+
+** 3.9
+
+I will use this form "table <- E1: (global)" to refer a frame table and it's contents, and the pointer points to a frame. In this example, `E1` points to this frame which related to the global frame.
+
+#+begin_src racket :results none
+(define (factorial n)
+  (if (= n 1)
+      1
+      (* n (factorial (- n 1)))))
+
+(factorial 6)
+#+end_src
+
+table1 <- global: factorial((n), (if (= n 1) 1 (* n (factorial (- n 1)))))
+
+factorial6 <- E1: (global), n(6), (if (= n 1) 1 (* n (factorial (- n 1)))
+
+factorial5 <- E2: (global), n(5), (if (= n 1) 1 (* n (factorial (- n 1)))
+
+...
+
+factorial1 <- E6: (global), n(1), (if (= n 1) 1 (* n (factorial (- n 1)))
+
+#+begin_src racket
+(define (factorial n)
+  (fact-iter 1 1 n))
+(define (fact-iter product counter max-count)
+  (if (> counter max-count)
+      product
+      (fact-iter (* counter product)
+                 (+ counter 1)
+                 max-count)))
+(factorial 6)
+#+end_src
+
+table1 <- global: factorial((n), (fact-iter 1 1 n)), fact-iter((product counter max-count), ...)
+
+factorial <- E1: (global), n(6), (fact-iter 1 1 n)
+
+fact-iter1 <- E2: (global), product(1), counter(1), max-count(6), (...)
+
+fact-iter2 <- E3: (global), product(1), counter(2), max-count(6), (...)
+
+fact-iter3 <- E4: (global), product(2), counter(3), max-count(6), (...)
+
+fact-iter3 <- E4: (global), product(6), counter(3), max-count(6), (...)
+
+...
+
+fact-iter7 <- E2: (global), product(1), counter(7), max-count(6), (...)
+
+** 3.10
+
+#+begin_src racket
+(define (make-withdraw initial-amount)
+  (let ((balance initial-amount))
+    (lambda (amount)
+      (if (>= balance amount)
+          (begin (set! balance (- balance amount))
+                 balance)
+          "Insufficient funds"))))
+#+end_src
+
+After src_racket[:exports code]{(define W1 (make-withdraw 100))}:
+
+#+begin_src
+table <- global: make-withdraw((initial-amount), ...), W1(#<procedure:E1:((amount), ...)>)
+
+by-make-withdraw <- E1: (global), initial-amount(100), balance(100)
+#+end_src
+
+After src_racket[:exports code]{(W1 50)}:
+
+#+begin_src
+table <- global: make-withdraw((initial-amount), ...), W1(#<procedure:E1:((amount), ...)>)
+
+by-make-withdraw <- E1: (global), initial-amount(100), balance(50)
+#+end_src
+
+After src_racket[:exports code]{(define W2 (make-withdraw 100))}:
+
+#+begin_src
+table <- global: make-withdraw((initial-amount), ...), W1(#<procedure:E1:((amount), ...)>), W2(#<procedure:E2:((amount), ...)>)
+
+by-make-withdraw <- E1: (global), initial-amount(100), balance(50)
+
+by-another-make-withdraw <- E2: (global), initial-amount(100), balance(100)
+#+end_src
+
+Compare this example in book section 3.2.3, in this environment a new table item `initial-amount` is created.
+
+** 3.11
+
+#+begin_src racket :results none
+(define (make-account balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (define (dispatch m)
+    (cond [(eq? m 'withdraw) withdraw]
+          [(eq? m 'deposit) deposit]
+          [else (error "Unknown request -- MAKE-ACCOUNT" m)]))
+  dispatch)
+#+end_src
+
+For src_racket[:exports code]{(define acc (make-account 50))}:
+
+#+begin_src
+table <- global: make-account((balance), ...), acc(#<procedure(dispatch):E1:((m), ...)>)
+
+by-make-accunt <- E1: (global), balance(50), withdraw((amount), ...), deposit((amount), ...), dispatch((m), ...)
+#+end_src
+
+src_racket[:exports code]{((acc 'deposit) 40)}:
+
+#+begin_src
+table <- global: make-account((balance), ...), acc(#<procedure(dispatch):E1:((m), ...)>)
+
+by-make-accunt <- E1: (global), balance(90), withdraw(...), deposit(...), dispatch(...)
+
+by-dispatch <- E2: (E1), m('deposit)
+
+by-deposit <- E3: (E1), amount(40)
+#+end_src
+
+src_racket[:exports code]{((acc 'withdraw) 60)}:
+
+#+begin_src
+table <- global: make-account((balance), ...), acc(#<procedure(dispatch):E1:((m), ...)>)
+
+by-make-accunt <- E1: (global), balance(30), withdraw(...), deposit(...), dispatch(...)
+
+by-dispatch <- E2: (E1), m('withdraw)
+
+by-withdraw <- E3: (E1), amount(60)
+#+end_src
+
+src_racket[:exports code]{(define acc2 (make-account 100))}:
+
+#+begin_src
+table <- global: make-account((balance), ...), acc(#<procedure(dispatch):E1:((m), ...)>, acc2(#<procedure(dispatch):E2:((m), ...)>)
+
+by-make-accunt <- E1: (global), balance(30), withdraw(...), deposit(...), dispatch(...)
+
+by-make-accunt2 <- E2: (global), balance(100), withdraw(...), deposit(...), dispatch(...)
+#+end_src
+
+The `acc` and `acc2` share the statement `dispatch` in `make-account`.
+
+* 3.3 Modeling with Mutable Data
+
+** 3.12
+
+#+NAME: append-bang
+#+begin_src racket :results none
+(define (append! x y)
+  (set-cdr! (last-pair x) y)
+  x)
+
+(define (last-pair x)
+  (if (null? (cdr x))
+      x
+      (last-pair (cdr x))))
+nil
+#+end_src
+
+
+#+begin_src racket :noweb yes
+;<<append-bang>>
+;<<displayln>>
+(define x (list 'a 'b))
+(define y (list 'c 'd))
+(define z (append x y))
+
+(displayln (cdr x)) ; => (b)
+
+(define w (append! x y))
+(displayln (cdr x)) ; => (b c d)
+(displayln z)
+#+end_src
+
+#+RESULTS:
+: (b)
+: (b c d)
+: (a b c d)
+: #<void>
+
+Before calling `append!`:
+
+#+begin_src
+x -> [a] -> [b] -> nil
+y -> [c] -> [d] -> nil
+z -> [a] -> [b] -> [c] -> [d] -> nil
+#+end_src
+
+After calling `append!`:
+
+#+begin_src
+x -> [a] -> [b] -> (y)   ; x -> [a] -> [b] -> [c] -> [d] -> nil
+y -> [c] -> [d] -> nil
+z -> [a] -> [b] -> [c] -> [d] -> nil
+#+end_src
+
+** 3.13
+
+#+NAME: make-cycle
+#+begin_src racket :noweb yes :results none
+;<<append-bang>>
+(define (make-cycle! x)
+  (set-cdr! (last-pair x) x)
+  x)
+#+end_src
+
+src_racket[:exports code]{(define z (make-cycle! (list 'a 'b 'c)))}:
+
+#+begin_src
+z -> [a] -> [b] -> [c] -> (z)
+; z -> [a] -> [b] -> [c] -> [a] -> [b] -> [c] -> [a] -> [b] -> [c] -> ...
+#+end_src
+
+Evaluating src_racket[:exports code]{(last-pair z)} goes to endless recusion.
+
+** 3.14
+
+#+begin_src racket
+(define (mystery x)
+  (define (loop x y)
+    (if (null? x)
+        y
+        (let ([temp (cdr x)])
+          (set-cdr! x y)
+          (loop temp x))))
+  (loop x '()))
+
+nil
+(define reversed! mystery)
+
+(define v (list 'a 'b 'c 'd))
+(define w (reversed! v))
+(display v) ; => (a)
+(display w)
+#+end_src
+
+#+RESULTS:
+: (a)(d c b a)#<void>
+
+#+begin_src
+v -> [a] -> [b] -> [c] -> [d] -> nil
+---
+v -> [a] -> nil
+(loop {[b] -> [c] -> [d] -> nil} v) => (loop {[c] -> [d] -> nil} {[b] -> [a] -> nil}) => ... => w
+w -> [d] -> [c] -> [b] -> [a] -> nil
+#+end_src
+
+** 3.15
+
+#+begin_src racket
+(define (set-to-wow! x)
+  (set-car! (car x) 'wow)
+  x)
+
+nil
+(define x (list 'a 'b))
+(define z1 (cons x x))
+(define z2 (cons (list 'a 'b) (list 'a 'b)))
+
+(list
+ (set-to-wow! z1)
+ (set-to-wow! z2))
+#+end_src
+
+#+RESULTS:
+: (((wow b) wow b) ((wow b) a b))
+
+#+begin_src
+x -> [a] -> [b] -> nil
+z1 -> ((x)) -> (x) ; z1 -> ([a] -> [b] -> nil) -> [a] -> [b] -> nil
+z2 -> ([a] -> [b] -> nil) -> [a] -> [b] -> nil
+---
+x -> [wow] -> [b] -> nil
+z1 -> ((x)) -> (x) ; z1 -> ([wow] -> [b] -> nil) -> [wow] -> [b] -> nil
+z2 -> ([wow] -> [b] -> nil) -> [a] -> [b] -> nil
+#+end_src
+
+** 3.16
+
+#+begin_src racket
+(define (count-pairs x)
+  (if (not (pair? x))
+      0
+      (+ (count-pairs (car x))
+         (count-pairs (cdr x))
+         1)))
+(define p (cons 'a 'b))
+(define l (list 'a 'b))
+
+(list
+ (count-pairs (list 1 1 1)) ; => 3
+ (count-pairs (list 1 1 p)) ; => 4
+ (count-pairs (list p p l)) ; => 7
+ ; (count-pairs (make-cycle! (list 1 2)))
+ )
+#+end_src
+
+#+RESULTS:
+: (3 4 7)
+
+Well, I don't understand this exercise.
+
+** 3.17
+
+I think the expression of the exercise is obscure. I guess it means this:
+
+#+begin_src racket :noweb yes
+;<<make-cycle>>
+(define (count-pairs x)
+  (define counted nil)
+  (define (iter x)
+    (if (or (not (pair? x)) (memq x counted))
+        0
+        (begin (set! counted (cons x counted))
+               (+ 1 (iter (car x)) (iter (cdr x))))))
+  (iter x))
+(define p (cons 'a 'b))
+(define l (list 'a 'b))
+
+(list
+ (count-pairs (list 1 1 1)) ; => 3
+ (count-pairs (list 1 1 p)) ; => 4
+ (count-pairs (list p p l)) ; => 6
+ (count-pairs (make-cycle! (list 1 2)))
+ )
+#+end_src
+
+#+RESULTS:
+: (3 4 6 2)
+
+** 3.18, 3.19
+
+#+begin_src racket :noweb yes
+;<<make-cycle>>
+(define (cycle-list? lst)
+  (define (iter xs)
+    (cond [(or (not (pair? xs)) (list? xs)) #f]
+          [(eq? lst xs) #t]
+          [else (iter (cdr xs))]))
+  (iter (cdr lst)))
+
+(define x (make-cycle! (list 1 2)))
+(list
+ (list (list? x) (pair? x))            ; NOTE cycled list is not list.
+ (cycle-list? (list 1 2))
+ (cycle-list? (list 1 2 (list 1 2)))
+ (cycle-list? x)
+ )
+#+end_src
+
+#+RESULTS:
+: ((#f #t) #f #f #t)
+
+** 3.20
+
+#+begin_src racket
+(define (cons x y)
+  (define (set-x! x v) (set! x v))
+  (define (set-y! y v) (set! y v))
+  (define (dispatch m)
+    (cond [(eq? m 'car) x]
+          [(eq? m 'cdr) y]
+          [(eq? m 'set-car) set-x!]
+          [(eq? m 'set-cdr) set-y!]
+          [else (error "Undefined operation -- CONS" m)]))
+  dispatch)
+
+(define (car z) (z 'car))
+(define (cdr z) (z 'cdr))
+(define (set-car! z v) ((z 'set-car) v) z)
+(define (set-cdr! z v) ((z 'set-cdr) v) z)
+#+end_src
+
+For src_racket[:exports code]{(define x (cons 1 2)) (define z (cons x x))}:
+
+#+begin_src
+table <- global: car(...), cdr(...), set-car!(...), set-cdr!(...), x(#<procedure(dispatch):E1:((m), ...)>), z(#<procedure(dispatch):E2:((m), ...)>)
+
+cons-x <- E1: (global), x(1), y(2), set-x!((x v), ...), set-y!((y v), ...), dispatch((m, ...))
+
+cons-z <- E2: (global), x(x (in global)), y(x (in global)), set-x!(...), set-y!(...), dispatch(...)
+#+end_src
+
+src_racket[:exports code]{(set-car! (cdr z) 17)}:
+
+#+begin_src
+table <- global: car(...), cdr(...), set-car!(...), set-cdr!(...), x(#<procedure(dispatch):E1:((m), ...)>), z(#<procedure(dispatch):E2:((m), ...)>)
+
+cons-x <- E1: (global), x(1), y(2), set-x!((x v), ...), set-y!((y v), ...), dispatch((m, ...))
+
+cons-z <- E2: (global), x(17), y(x), set-x!(...), set-y!(...), dispatch(...)
+
+set-car-z-17 <- E3: (global), z((cdr z) => x), v(17)
+
+cdr-z-17 <- E4: (global), z(z => #<procedure(dispatch):E2:...>)
+
+dispatch-z-cdr <- E5: (E2), m('cdr)
+
+dispatch-z-set-car-17 <- E6: (E2), m('set-cdr)
+
+z-set-car-17-set-x <- E7: (E2), x(x => #procedure(dispatch):E1:...>), v(17)
+#+end_src
+
+src_racket[:exports code]{(car x)}:
+
+#+begin_src
+table <- global: car(...), cdr(...), set-car!(...), set-cdr!(...), x(#<procedure(dispatch):E1:((m), ...)>), z(#<procedure(dispatch):E2:((m), ...)>)
+
+cons-x <- E1: (global), x(1), y(2), set-x!((x v), ...), set-y!((y v), ...), dispatch((m, ...))
+
+cons-z <- E2: (global), x(17), y(x), set-x!(...), set-y!(...), dispatch(...)
+
+car-x <- E8: (global), z(x)
+
+dispatch-car-x <- E9: (global), m('car)
+#+end_src
+
+** 3.21 print queue
+
+#+NAME: queue
+#+begin_src racket
+;; construction
+(define (make-queue) (cons nil nil))
+(define front-ptr car)
+(define rear-ptr cdr)
+(define set-front-ptr! set-car!)
+(define set-rear-ptr! set-cdr!)
+(define (empty-queue? que) (null? (front-ptr que)))
+
+(define (front-queue que) (car (front-ptr que)))
+(define (rear-queue que) (car (rear-ptr que)))
+
+;; modification
+(define (insert-queue! que item)
+  (let ([new-pair (cons item nil)])
+    (cond [(empty-queue? que)
+           (set-front-ptr! que new-pair)
+           (set-rear-ptr! que new-pair)
+           que]
+          [else (set-cdr! (rear-ptr que) new-pair)
+                (set-rear-ptr! que new-pair)
+                que])))
+
+(define (delete-queue! que)
+  (cond [(empty-queue? que)
+         (error "DELETE! called with an empty queue" que)]
+        [else (set-front-ptr! que (cdr (front-ptr que)))
+              que]))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<queue>>
+(define (print-queue que) (display (front-ptr que)))
+
+nil
+(define q1 (make-queue))
+(print-queue (insert-queue! q1 'a))
+(print-queue (insert-queue! q1 'b))
+(print-queue (delete-queue! q1))
+(print-queue (delete-queue! q1))
+#+end_src
+
+#+RESULTS:
+: (a)(a b)(b)()#<void>
+
+** 3.22
+
+#+begin_src racket
+(define (make-queue)
+  (let ([front-ptr nil]
+        [rear-ptr nil])
+    (define (set-front-ptr! v) (set! front-ptr v))
+    (define (set-rear-ptr! v) (set! rear-ptr v))
+    (define (empty?) (null? front-ptr))
+    (define (view) front-ptr)
+    (define (insert! v)
+      (let ([new-pair (cons v nil)])
+        (cond [(empty?) (set-front-ptr! new-pair)
+                        (set-rear-ptr! new-pair)
+                        (view)]
+              [else (set-cdr! rear-ptr new-pair)
+                    (set-rear-ptr! new-pair)
+                    (view)])))
+    (define (delete!)
+      (cond [(empty?) (error "DELETE! called with an empty queue")
+                      dispatch]
+            [else (set-front-ptr! (cdr front-ptr))
+                  (view)]))
+    (define (print) (display (view)))
+
+    (define (dispatch m)
+      (cond [(eq? m 'front-ptr) front-ptr]
+            [(eq? m 'rear-ptr) rear-ptr]
+            [(eq? m 'empty?) (empty?)]
+            [(eq? m 'insert!) insert!]
+            [(eq? m 'delete!) (delete!)]
+            [(eq? m 'print) (print)]
+            ))
+    dispatch))
+
+nil
+(define q1 (make-queue))
+
+((q1 'insert!) 'a) (q1 'print)
+((q1 'insert!) 'b) (q1 'print)
+(q1 'delete!)      (q1 'print)
+(q1 'delete!)      (q1 'print)
+#+end_src
+
+#+RESULTS:
+: (a)(a b)(b)()#<void>
+
+** 3.23 deque
+
+#+NAME: deque
+#+begin_src racket :noweb yes :results none
+(define (make-node-deque v) (cons v (cons nil nil)))
+(define value-node car)
+(define last-node cadr)
+(define next-node cddr)
+(define (set-last-node! node last)
+  (set-car! (cdr node) last))
+(define (set-next-node! node next)
+  (set-cdr! (cdr node) next))
+
+(define (make-deque) (cons 0 (cons nil nil)))
+(define length-deque car)
+(define front-ptr-deque cadr)
+(define rear-ptr-deque cddr)
+(define set-length-deque! set-car!)
+(define (set-front-ptr-deque! que v) (set-car! (cdr que) v))
+(define (set-rear-ptr-deque! que v) (set-cdr! (cdr que) v))
+(define (empty-deque? que) (null? (front-ptr-deque que)))
+(define (one-deque? que) (and (not (empty-deque? que))
+                              (eq? (front-ptr-deque que) (rear-ptr-deque que))))
+
+(define (front-deque que)
+  (cond [(empty-deque? que)
+         (error "Operation on an empty deque -- FRONT-DEQUE" que)]
+        [else (value-node (front-ptr-deque que))]))
+(define (rear-deque que)
+  (cond [(empty-deque? que)
+         (error "Operation on an empty deque -- REAR-DEQUE" que)]
+        [else (value-node (rear-ptr-deque que))]))
+(define (inc-length-deque! que)
+  (set-length-deque! que (+ (length-deque que) 1)))
+(define (dec-length-deque! que)
+  (set-length-deque! que (- (length-deque que) 1)))
+(define (front-insert-deque! que v)
+  (inc-length-deque! que)
+  (let ([new-node (make-node-deque v)])
+    (cond [(empty-deque? que) (set-front-ptr-deque! que new-node)
+                              (set-rear-ptr-deque! que new-node)
+                              que]
+          [else (let ([front (front-ptr-deque que)])
+                  (set-last-node! front new-node)
+                  (set-next-node! new-node front)
+                  (set-front-ptr-deque! que new-node))])))
+(define (rear-insert-deque! que v)
+  (inc-length-deque! que)
+  (let ([new-node (make-node-deque v)])
+    (cond [(empty-deque? que) (set-front-ptr-deque! que new-node)
+                              (set-rear-ptr-deque! que new-node)
+                              que]
+          [else (let ([rear (rear-ptr-deque que)])
+                  (set-next-node! rear new-node)
+                  (set-last-node! new-node rear)
+                  (set-rear-ptr-deque! que new-node))])))
+(define (front-delete-deque! que)
+  (dec-length-deque! que)
+  (cond [(empty-deque? que)
+         (error "FRONT-DELETE! an empty deque" que)]
+        [(one-deque? que) (set-front-ptr-deque! que nil)
+                          (set-rear-ptr-deque! que nil)]
+        [else (set-front-ptr-deque! que (next-node (front-ptr-deque que)))
+              (set-last-node! (front-ptr-deque que) nil)]))
+(define (rear-delete-deque! que)
+  (dec-length-deque! que)
+  (cond [(empty-deque? que)
+         (error "REAR-DELETE! an empty deque" que)]
+        [(one-deque? que) (set-rear-ptr-deque! que nil)
+                          (set-front-ptr-deque! que nil)]
+        [else (set-rear-ptr-deque! que (last-node (rear-ptr-deque que)))
+              (set-next-node! (rear-ptr-deque que) nil)]))
+
+(define (print-deque que)
+  (define (iter node)
+    (if (null? node)
+        (display nil)
+        (begin (display (value-node node))
+               (display " ")
+               (iter (next-node node)))))
+  (display "(")
+  (iter (front-ptr-deque que))
+  (display ")"))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<deque>>
+;<<higher-order>>
+nil
+(define q1 (make-deque))
+(print-deque q1)
+(front-insert-deque! q1 1)
+(front-insert-deque! q1 2)
+(front-insert-deque! q1 3)
+(print-deque q1)
+(rear-delete-deque! q1)
+(rear-delete-deque! q1)
+(rear-delete-deque! q1)
+(print-deque q1)
+((repeat 3 rear-insert-deque!) q1 1)
+(print-deque q1)
+((repeat 3 front-delete-deque!) q1)
+(print-deque q1)
+#+end_src
+
+#+RESULTS:
+: (())(3 2 1 ())(())(1 1 1 ())(())#<void>
+
+** 3.24
+
+#+begin_src racket
+(define (make-table same-key?)
+  (let ([local-table (list '*table*)])
+    (define (assoc k table)
+      (cond [(null? table) #f]
+            [(same-key? (caar table) k) (car table)]
+            [else (assoc k (cdr table))]))
+    ; -- snip --
+    ))
+#+end_src
+
+** 3.25, 3.26
+
+It's kind of difficult to combine these two. Better to image the data structure clearly.
+
+A record is like src_racket[:exports code]{(cons k v)}, and association list is like src_racket[:exports code]{(list (cons k1 v1) (cons k2 v2) ...)}. Replace data structure to tree, it's like src_racket[:exports code]{(tree (cons k1 v2) (cons k2 v2) ...)}.
+
+How about more dimentions? They may be like src_racket[:exports code]{(tree (cons k1 tree1) (cons k2 tree2) ...) => (tree (cons k1 (tree (cons k11 v11) (cons k12 v12) ...)) (tree (cons k21 v21) (cons k22 v22)))}. Notice that I replaced the `v` to a tree, this implies a structure src_racket[:exports code]{(key tree)}.
+
+How a powerful observation! This means the type of a table is "type of key + type of another tree". If a `v` is of type of tree and it's a node, the type system will be simpler. It's like:
+
+#+begin_src
+(cons k t)
+=> (cons k (cons k1 t1) (cons k2 t2) ...)
+=> (cons k (cons k1 (cons k11 t11) (cons k12 t12) ...) (cons k2 (cons k21 t21) (cons k22 t22) ...) ...)
+=> (cons k (cons k1 (cons k11 (... node1)) (cons k12 (... node2)) ...) (cons k2 (cons k21 (... node3)) ...)
+#+end_src
+
+The types are:
+
+#+begin_src
+type record = {key, tree}
+type table = record
+type tree = tree(records) | node(value)
+;; while key and value can be any type.
+#+end_src
+
+#+NAME: table
+#+begin_src racket :results none
+(define (attach-tag tag contents)
+  (cons tag contents))
+
+(define ord (list 'LT 'EQ 'GT))
+(define (number-cmp a b)
+  (cond [(= a b) 'EQ]
+        [(< a b) 'LT]
+        [else 'GT]))
+
+(define (binary-tree cmp)
+  (define (make) (cons nil (cons nil nil)))
+  (define (make-node v) (cons v (cons nil nil)))
+  (define (empty? t) (null? (value t)))
+  (define (node? t) (and (null? (left t)) (null? (right t))))
+  (define value car)
+  (define left cadr)
+  (define right cddr)
+  (define (set-value! t v) (set-car! t v))
+  (define (set-left! t sub) (set-car! (cdr t) sub))
+  (define (set-right! t sub) (set-cdr! (cdr t) sub))
+  (define (insert! t v)
+    (cond [(empty? t) (set-value! t v)
+                      t]
+          [(eq? (cmp (value t) v) 'LT)
+           (if (null? (left t))
+               (begin (set-left! t (make-node v))
+                      t)
+               (insert! (left t) v))]
+          [else
+           (if (null? (right t))
+               (begin (set-right! t (make-node v))
+                      t)
+               (insert! (right t) v))]))
+  (define (search t target)
+    (if (or (null? t) (empty? t)) #f
+        (let ([cmp-res (cmp (value t) target)])
+          (cond [(eq? cmp-res 'EQ) (value t)]
+                [(eq? cmp-res 'LT) (search (left t) target)]
+                [(eq? cmp-res 'GT) (search (right t) target)]))))
+
+  (define (view-tagged t)
+    (cond [(tagged-tree? t)
+           (let ([untagged (remove-tag t)])
+             (list (view-tagged (value untagged)) (view-tagged (left untagged)) (view-tagged (right untagged))))]
+          [else t]))
+
+  (define (tag x) (list (attach-tag 'B x)))
+  (define (tagged-tree? x) (and (list? x) (not (null? x)) (pair? (car x)) (eq? (caar x) 'B)))
+  (define (remove-tag x)
+    (if (tagged-tree? x)
+        (cdar x)
+        (error "Not tree -- REMOVE-TAG" x)))
+  (define (dispatch m)
+    (cond
+      [(eq? m 'left) (lambda (t) (left (remove-tag t)))]
+      [(eq? m 'right) (lambda (t) (right (remove-tag t)))]
+      [(eq? m 'tree?) tagged-tree?]
+      [(eq? m 'make) (lambda () (tag (make)))]
+      [(eq? m 'make-node) (lambda (v) (tag (make-node v)))]
+      [(eq? m 'empty?) (lambda (t) (empty? (remove-tag t)))]
+      [(eq? m 'node?) (lambda (t) (node? (remove-tag t)))]
+      [(eq? m 'value) (lambda (t) (value (remove-tag t)))]
+      [(eq? m 'view) view-tagged]
+      [(eq? m 'insert!) (lambda (t v) (insert! (remove-tag t) v))]
+      [(eq? m 'search) (lambda (t v) (search (remove-tag t) v))]
+      [else (error "No method -- BINARY-TREE" m)]))
+  dispatch)
+
+(define (make-table init-key valid-key? key-cmp)
+  (define (key table) (car table))
+  (define (tree table) (cdr table))
+  (define (drop-key x)
+    (if (valid-key? x) x (key x)))
+  (define (record-key-cmp a b)
+    (key-cmp (drop-key a) (drop-key b)))
+  nil
+  (define tree-method (binary-tree record-key-cmp))
+  (define (make key) (cons key ((tree-method 'make))))
+  (define (empty? table) ((tree-method 'empty?) (cdr table)))
+  (define set-tree! set-cdr!)
+  (define (validated-key k)
+    (if (valid-key? k)
+        k
+        (error "Invalid key:" k)))
+  (define (table? t)
+    (and (pair? t)
+         (valid-key? (key t))
+         ((tree-method 'tree?) (tree t))))
+  (define (lookup-layer table k)
+    ((tree-method 'search) (tree table) k))
+  (define (not-nesting-record? tr)
+    (and ((tree-method 'node?) tr)
+         (not (table? ((tree-method 'value) tr)))))
+
+  (let ([local-table (make init-key)])
+    (define (lookup keys)
+      (define (iter table rest-keys)
+        (if (null? rest-keys) table
+            (let ([k (validated-key (car rest-keys))])
+              (let ([record (lookup-layer table k)])
+                (cond [(not record) #f]
+                      [(and (not-nesting-record? (tree record))
+                            (not (null? (cdr rest-keys))))
+                       (eq? (record-key-cmp record (validated-key (cadr rest-keys))) 'EQ)]
+                      [else (iter record (cdr rest-keys))])))))
+      (let ([res (iter local-table keys)])
+        (if res
+            ((tree-method 'value) (tree res))
+            #f)))
+
+    (define (insert! keys v)
+      (define (iter table rest-keys)
+        (if (null? rest-keys) (set-tree! table ((tree-method 'make-node) v))
+            (let ([k (validated-key (car rest-keys))])
+              (if (and (not (empty? table))
+                       (not-nesting-record? (tree table))
+                       (not (null? rest-keys)))
+                  (begin
+                    (display "!") (display table) (display " ") (display k) (display "!")
+                    (set-tree! table ((tree-method 'make)))))
+              (let ([record (lookup-layer table k)])
+                (cond [(not record)
+                       (let ([new-record (make k)])
+                         ((tree-method 'insert!) (tree table) new-record)
+                         (iter new-record (cdr rest-keys)))]
+                      [else (iter record (cdr rest-keys))])))))
+      (iter local-table keys)
+      'done)
+
+    ;; (define (view)
+    ;;   (define left (tree-method 'left))
+    ;;   (define right (tree-method 'right))
+    ;;   (define value (tree-method 'value))
+    ;;   (define (view-table table)
+    ;;     (if (empty? table) nil
+    ;;         (list (key table) (view-tree (tree table)))))
+    ;;   (define (view-tree t)
+    ;;     (cond
+    ;;       [(not-nesting-record? t) ((tree-method 'view) t)]
+    ;;       [((tree-method 'node?) t) (view-table (value t))]
+    ;;       [else (list (view-table (value t)) ((tree-method 'view) (left t)) ((tree-method 'view) (right t)))]))
+    ;;   (view-table local-table))
+
+    (define (view-raw) local-table)
+    (define (dispatch m)
+      (cond [(eq? m 'view) view-raw]
+            [(eq? m 'lookup) lookup]
+            [(eq? m 'insert!) insert!]
+            [else (error "No method -- MAKE-TABLE" m)]))
+    dispatch))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<table>>
+(define (cmp-string a b)
+  (cond [(string=? a b) 'EQ]
+        [(string<? a b) 'LT]
+        [else 'GT]))
+
+nil
+(define table (make-table "*table*" string? cmp-string))
+
+;<<displayln>>
+(begin
+  (displayln ((table 'view)))
+  (displayln ((table 'lookup) nil))
+  (displayln ((table 'lookup) (list "1")))
+  (displayln ((table 'insert!) (list "i" "j" "k") 1))
+  (displayln ((table 'view)))
+  (displayln ((table 'lookup) (list "i" "j" "k")))
+  (displayln ((table 'insert!) (list "i" "j" "l") 2))
+  (displayln ((table 'view)))
+  (displayln ((table 'lookup) (list "i" "j" "l")))
+  (displayln ((table 'insert!) (list "a") 3))
+  (displayln ((table 'view)))
+  (displayln ((table 'insert!) (list "a" "b" "c") 2))
+  (displayln ((table 'lookup) (list "a" "b" "c")))
+  (displayln ((table 'view)))
+  (displayln ((table 'insert!) (list "a") 3))
+  (displayln ((table 'lookup) (list "a")))
+  (displayln ((table 'view)))
+  (displayln ((table 'lookup) nil))
+  )
+#+end_src
+
+#+RESULTS:
+#+begin_example
+(*table* (B () ()))
+()
+#f
+done
+(*table* (B (i (B (j (B (k (B 1 ())) ())) ())) ()))
+1
+done
+(*table* (B (i (B (j (B (k (B 1 ())) ((l (B 2 ())) ()))) ())) ()))
+2
+done
+(*table* (B (i (B (j (B (k (B 1 ())) ((l (B 2 ())) ()))) ())) () (a (B 3 ())) ()))
+!(a (B 3 ())) b!done
+2
+(*table* (B (i (B (j (B (k (B 1 ())) ((l (B 2 ())) ()))) ())) () (a (B (b (B (c (B 2 ())) ())) ())) ()))
+done
+3
+(*table* (B (i (B (j (B (k (B 1 ())) ((l (B 2 ())) ()))) ())) () (a (B 3 ())) ()))
+(i (B (j (B (k (B 1 ())) ((l (B 2 ())) ()))) ()))
+#<void>
+#+end_example
+
+This takes me many hours... I shouldn't do this. :(
+
+** 3.27
+
+#+NAME: table-1d
+#+begin_src racket :results none
+(define (make-table)
+  (list '*table*))
+
+(define (lookup key table)
+  (let ([record (assoc key (cdr table))])
+    (if record
+        (cdr record)
+        #f)))
+
+(define (insert! k v table)
+  (let ([record (assoc k (cdr table))])
+    (if record
+        (set-cdr! record v)
+        (set-cdr! table
+                  (cons (cons k v) (cdr table))))))
+#+end_src
+
+#+begin_src racket :noweb yes
+;<<table-1d>>
+(define (memorize f)
+  (let ([table (make-table)])
+    (lambda (x)
+      (let ([saved (lookup x table)])
+        (if saved
+            saved
+            (let ([result (f x)])
+              (insert! x result table)
+              result))))))
+nil
+(define (fib n)
+  (cond [(= n 0) 0]
+        [(= n 1) 1]
+        [else (+ (fib - n 2)
+                 (fib (- n 1)))]))
+
+(define memo-fib
+  (memorize (lambda (n)
+              (cond [(= n 0) 0]
+                    [(= n 1) 1]
+                    [else (+ (memo-fib (- n 1))
+                             (memo-fib (- n 2)))]))))
+
+(memo-fib 100)
+#+end_src
+
+#+RESULTS:
+: 354224848179261915075
+
+The old `fib` is tree recursively computed, while the memorized fib is iterative. Each call the `memo-fib` will lookup the inner table to examine whether it was computed in the past. If the table is a hash table, it will be of $\Theta$(1) for each lookup, and `memo-fib` will be of $\Theta$(n).
+
+** Book 3.3.4 A Simulator for Digital Circuits
+
+*** 3.28
+
+#+begin_src racket :noweb-ref circuit :results none
+(define (logical-or a b)
+  (cond [(and (= a 0) (= b 0)) 0]
+        [(or (= a 1) (= b 1)) 1]
+        [else (error "Invalid signal -- LOGICAL-OR" (list a b))]))
+
+(define (or-gate a b out)
+  (define (or-action-procedure)
+    (let ([new-value (logical-or (get-signal a) (get-signal b))])
+      (after-delay or-gate-delay
+                   (lambda ()
+                     (set-signal! out new-value)))))
+  (add-action! a or-action-procedure)
+  (add-action! b or-action-procedure)
+  'ok)
+#+end_src
+
+*** 3.29
+
+First, I realized that `a or b = not (both_zero a b) = not ((not a) and (not b))`, so I can use not-gate and and-gate to implement or-gate.
+
+Then, it comes again to my favourite contents to image an API of an abstruaction layer. I image a src_racket[:exports code]{(define (make-delay delay-proc) ...)}, and the or-gate in this implementation should wait the not-gate firstly, and and-gate secondly, and not-gate finally.
+
+#+begin_src racket :results none
+(define (or-gate a b out)
+  (let ([na (make-wire)] [nb (make-wire)] [o1 (make-wire)])
+    (not-gate a na)
+    (not-gate b nb)
+    (and-gate na nb o1)
+    (not-gate o1 out)
+    'ok))
+#+end_src
+
+#+begin_src racket
+(define (do-nothing) (lambda () '()))
+(define or-gate-delay
+  (let ([delay-proc (lambda ()
+                      (after-delay not-gate-delay do-nothing)
+                      (after-delay and-gate-delay do-nothing)
+                      (after-delay not-gate-delay do-nothing))])
+        (make-delay delay-proc)))
+#+end_src
+
+
+*** 3.30
+
+#+begin_src racket :noweb yes :results none
+;<<circuit-construction>>
+;<<not-and-gates>>
+;<<adder>>
+(define half-adder-delay-time
+  (+ (time-delay and-gate-delay)
+     (max (time-delay or-gate-delay)
+          (+ (time-delay and-gate-delay)
+             (time-delay not-gate-delay)))))
+
+(define half-adder-delay
+  (let ([delay-proc (lambda ()
+                      (after-delay (make-delay-by-time half-adder-delay-time)
+                                   do-nothing))])
+    (make-delay delay-proc)))
+
+(define full-adder-delay
+  (let ([delay-proc (lambda ()
+                      (after-delay half-adder-delay do-nothing)
+                      (after-delay or-gate-delay do-nothing))])
+    (make-delay delay-proc)))
+
+(define (make-ripple-carry-adder-delay n)
+  (define (iter-delay i)
+    (if (= i 0)
+        do-nothing
+        (begin (after-delay full-adder-delay do-nothing)
+               (iter-delay (- n 1)))))
+  (make-delay (lambda () (iter-delay n))))
+
+(define (ripple-carry-adder As Bs Ss c)
+  (cond [(and (null? As) (null? Bs) (null? Cs)) 'ok]
+        [(or (null? As) (null? Bs) (null? Cs))
+         (error "Input length not match -- RIPPLE-CARRY-ADDER" (list As Bs Ss))]
+        [else (let ([c1 (make-delay)])
+                (full-adder (car As) (car Bs) c (car Ss) c1)
+                (ripple-carry-adder (cdr As) (cdr Bs) (cdr Ss) c1))]))
+#+end_src
+
+*** 3.31
+
+I successfully guess the API wrong. According to the book content, the delay should be number. So my answer to Exercise 3.29, 3.30 are not fit for the system described in the book. I don't care, and let me do the Exercise 3.31.
+
+The below comments show the output of the procedures.
+
+#+begin_src racket :noweb yes
+;<<agenda>>
+nil
+(define the-agenda (make-agenda))
+;<<delay>>
+(define not-gate-delay 2)
+(define and-gate-delay 3)
+(define or-gate-delay 5)
+;<<circuit-construction>>
+;<<probe>>
+;<<not-and-gates>>
+;<<or-gate>>
+;<<adder>>
+nil
+(define input-1 (make-wire))
+(define input-2 (make-wire))
+(define sum (make-wire))
+(define carry (make-wire))
+
+(probe 'sum sum)
+; sum 0  New-value = 0
+
+(probe 'carry carry)
+; carry 0 New-value = 0
+
+(half-adder input-1 input-2 sum carry)
+; ok
+
+(set-signal! input-1 1)
+; done
+
+(propagate)
+; sum 8  New-value = 1
+; done
+
+(set-signal! input-2 1)
+; done
+
+(propagate)
+#+end_src
+
+#+RESULTS:
+:
+: sum 0  New-value = 0
+: carry 0  New-value = 0
+: sum 8  New-value = 1
+: carry 11  New-value = 1
+: sum 16  New-value = 0done
+
+All above outputs are based to that the action added to the gate will be instantly done once.
+
+Otherwise, the circuit system can't be the right state when doing constructing gates. This means after the gate circuit is contructed, the gates in circuit are not powered on, and all the values in each wire are zeros. Not only that, all the `after-delay` procedure won't be executed, so no action will be added to the agenda. The actions in the agenda would be none! And the `propagate` makes no use, wires in the circuit will be 0(initial value) forerver.
+
+*** 3.32
+
+The system must use a queue to manage the actions because it must simulate the change of digital signal which should be evaluated by time order.
+
+Both src_racket[:exports code]{(logical-and 0 1)} and src_racket[:exports code]{(logical-and 0 1)} should be evaluated to `0`.
+
+#+begin_src racket :noweb yes
+;<<agenda>>
+nil
+(define the-agenda (make-agenda))
+;<<delay>>
+(define not-gate-delay 2)
+(define and-gate-delay 3)
+(define or-gate-delay 5)
+;<<circuit-construction>>
+;<<probe>>
+;<<not-and-gates>>
+;<<or-gate>>
+nil
+(define input-1 (make-wire))
+(define input-2 (make-wire))
+(define out (make-wire))
+
+(probe 'out out)
+(and-gate input-1 input-2 out)
+
+(set-signal! input-1 0)
+(set-signal! input-2 1)
+(propagate)
+
+(newline) (display "---")
+
+(set-signal! input-1 1)
+(set-signal! input-2 0)
+(propagate)
+#+end_src
+
+#+RESULTS:
+:
+: out 0  New-value = 0
+: ---
+: out 6  New-value = 1
+: out 6  New-value = 0done
+
+See the result of the code. Before the wire out is evaluated to correct result, the signal of out jumps to 1 firstly.
+This is because the action of `set-signal!` would call all actions to add the assignmeent procedure after delay. If the segment actions are be executed by FIFO order, the reversed order of execution may cause incorrect result.
+For example, above code generate a segment src_racket[:exports code]{(3 ((lambda () (set-signal! out 0)) (lambda () (set-signal! out 1))))}. With FILO behavior the result signal will jump to correct 0 and results an incorrect 1.
+
+*** other
+
+#+NAME: circuit-construction
+#+begin_src racket :noweb yes :noweb-ref circuit :results none
+(define (make-wire)
+  (let ([signal-value 0] [action-procedures '()])
+    (define (set-my-signal! v)
+      (if (not (= signal-value v))
+               (begin (set! signal-value v)
+                      (call-each action-procedures))
+               'done))
+    (define (accept-action-procedure! proc)
+      (set! action-procedures (cons proc action-procedures))
+      (proc))
+    (define (dispatch m)
+      (cond [(eq? m 'get-signal) signal-value]
+            [(eq? m 'set-signal!) set-my-signal!]
+            [(eq? m 'add-action!) accept-action-procedure!]
+            [else (error "Unknown operation -- WIRE" m)]))
+    dispatch))
+;<<fold>>
+(define (call-each fs)
+  (fold-left (lambda (acc f) (f)) nil fs)
+  'done)
+
+(define (get-signal wire) (wire 'get-signal))
+(define (set-signal! wire v) ((wire 'set-signal!) v))
+(define (add-action! wire proc) ((wire 'add-action!) proc))
+#+end_src
+
+#+NAME: agenda
+#+begin_src racket :noweb yes :noweb-ref circuit
+;<<queue>>
+(define (make-time-segment time queue)
+  (cons time queue))
+(define segment-time car)
+(define segment-queue cdr)
+
+(define (make-agenda) (cons 0 '()))
+(define current-time car)
+(define segments cdr)
+(define set-current-time! set-car!)
+(define set-segments! set-cdr!)
+
+(define (empty-agenda? agenda) (null? (segments agenda)))
+(define (first-segment agenda) (car (segments agenda)))
+(define (rest-segments agenda) (cdr (segments agenda)))
+
+(define (first-agenda-item agenda)
+  (if (empty-agenda? agenda)
+      (error "Agenda is empty -- FIRST-AGENDA-ITEM" agenda)
+      (let ([first-seg (first-segment agenda)])
+        (set-current-time! agenda (segment-time first-seg))
+        (front-queue (segment-queue first-seg)))))
+
+(define (remove-first-agenda-item! agenda)
+  (let ([q (segment-queue (first-segment agenda))])
+    (delete-queue! q)
+    (if (empty-queue? q)
+        (set-segments! agenda (rest-segments agenda)))))
+
+(define (add-to-agenda! time action agenda)
+  (define (belongs-before? segments)
+    (or (null? segments)
+        (< time (segment-time (car segments)))))
+  (define (make-new-time-segment time action)
+    (let ([q (make-queue)])
+      (insert-queue! q action)
+      (make-time-segment time q)))
+  (define (add-to-segments! segments)
+    (if (= (segment-time (car segments)) time)
+        (insert-queue! (segment-queue (car segments))
+                       action)
+        (let ([rest (cdr segments)])
+          (if (belongs-before? rest)
+              (set-cdr! segments
+                        (cons (make-new-time-segment time action)
+                              (cdr segments)))
+              (add-to-segments! rest)))))
+  (let ([segments (segments agenda)])
+    (if (belongs-before? segments)
+        (set-segments!
+         agenda
+         (cons (make-new-time-segment time action) segments))
+        (add-to-segments! segments))))
+#+end_src
+
+#+NAME: delay
+#+begin_src racket :noweb-ref circuit
+(define (after-delay delay action)
+  (add-to-agenda! (+ delay (current-time the-agenda))
+                  action
+                  the-agenda))
+
+(define (propagate)
+  (if (empty-agenda? the-agenda)
+      'done
+      (let ([first-item (first-agenda-item the-agenda)])
+        (first-item)
+        (remove-first-agenda-item! the-agenda)
+        (propagate))))
+#+end_src
+
+#+NAME: probe
+#+begin_src racket :noweb-ref circuit
+(define (probe name wire)
+  (add-action! wire
+               (lambda ()
+                 (newline)
+                 (display name)
+                 (display " ")
+                 (display (current-time the-agenda))
+                 (display "  New-value = ")
+                 (display (get-signal wire)))))
+#+end_src
+
+#+NAME: or-gate
+#+begin_src racket
+(define (or-gate a b out)
+  (define (or-action-procedure)
+    (let ([v (logical-or (get-signal a) (get-signal b))])
+      (after-delay or-gate-delay
+                   (lambda ()
+                     (set-signal! out v)))))
+  (add-action! a or-action-procedure)
+  (add-action! b or-action-procedure)
+  'ok)
+
+(define (logical-or a b)
+  (cond [(and (= a 0) (= b 0)) 0]
+        [(or (= a 1) (= b 1)) 1]
+        [else "Invalid signal -- LOGICAL-OR" (list a b)]))
+#+end_src
+
+#+NAME: not-and-gates
+#+begin_src racket :noweb-ref circuit
+(define (not-gate in out)
+  (define (invert-input)
+    (let ([new-value (logical-not (get-signal in))])
+      (after-delay not-gate-delay
+                   (lambda ()
+                     (set-signal! out new-value)))))
+  (add-action! in invert-input)
+  'ok)
+
+(define (and-gate a b out)
+  (define (and-action-procedure)
+    (let ([new-value (logical-and (get-signal a) (get-signal b))])
+      (after-delay and-gate-delay
+                   (lambda ()
+                     (set-signal! out new-value)))))
+  (add-action! a and-action-procedure)
+  (add-action! b and-action-procedure)
+  'ok)
+
+(define (logical-not s)
+  (cond [(= s 1) 0]
+        [(= s 0) 1]
+        [else (error "Invalid Signal" s)]))
+
+(define (logical-and a b)
+  (cond [(and (= a 1) (= b 1)) 1]
+        [(or (= a 0) (= b 0)) 0]
+        [else (error "Invalid signal -- LOGICAL-AND" (list a b))]))
+#+end_src
+
+#+NAME: adder
+#+begin_src racket :noweb-ref circuit :results none
+(define (half-adder a b s c)
+  (let ([d (make-wire)] [e (make-wire)])
+    (or-gate a b d)
+    (and-gate a b c)
+    (not-gate c e)
+    (and-gate d e s)
+    'ok))
+
+(define (full-adder a b cin sum cout)
+  (let ([s (make-wire)]
+        [c1 (make-wire)]
+        [c2 (make-wire)])
+    (half-adder b cin s c1)
+    (half-adder a s sum c2)
+    (or-gate c1 c2 cout)
+    'ok))
+#+end_src
+
 
 * Helper procedures
 
@@ -306,6 +1658,31 @@ nil
       (iter n (lambda args (list (apply func args))))))
 #+end_src
 
+#+NAME: fold
+#+begin_src racket
+(define (fold-left f init lst)
+  (if (null? lst) init
+      (fold-left f (f init (car lst)) (cdr lst))))
+
+(define (fold-right f init lst)
+  (if (null? lst) init
+      (f (car lst) (fold-right f init (cdr lst)))))
+#+end_src
+
+#+NAME: take
+#+begin_src racket
+(define (take n lst)
+  (if (= n 0) nil
+      (cons (car lst) (take (- n 1) (cdr lst)))))
+
+(define (take-when f lst)
+  (cond [(null? lst) nil]
+        [(f (car lst))
+         (cons (car lst) (take-when f (cdr lst)))]
+        [else nil]))
+#+end_src
+
+
 #+NAME: square
 #+begin_src racket :results none
 (define (square x) (* x x))
@@ -315,3 +1692,9 @@ nil
 #+begin_src racket :results none
 (define (displayln x) (display x) (newline))
 #+end_src
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
