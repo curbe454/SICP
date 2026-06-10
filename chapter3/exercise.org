@@ -1633,6 +1633,948 @@ For example, above code generate a segment src_racket[:exports code]{(3 ((lambda
     'ok))
 #+end_src
 
+** Book 3.3.5 Propagation of Constraints
+
+*** example
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+(define C (make-connector))
+(define F (make-connector))
+
+(define (celsius-fahrenheit-converter c f)
+  (let ([u (make-connector)]
+        [v (make-connector)]
+        [w (make-connector)]
+        [x (make-connector)]
+        [y (make-connector)])
+    (multiplier c w u)
+    (multiplier v x u)
+    (adder v y f)
+    (constant 9 w)
+    (constant 5 x)
+    (constant 32 y)
+    'ok))
+
+(celsius-fahrenheit-converter C F)
+(probe "Celsius temp" C)
+(probe "Fahrenheit temp" F)
+
+(set-value! C 25 'user)
+
+(forget-value! C 'user)
+
+(set-value! F 212 'user)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+#<procedure:...rg-babel-0BlBXV.rkt:142:2>
+#<procedure:...rg-babel-0BlBXV.rkt:142:2>
+
+Probe: Celsius temp = 25
+Probe: Fahrenheit temp = 77done
+
+Probe: Celsius temp = ?
+Probe: Fahrenheit temp = ?done
+
+Probe: Fahrenheit temp = 212
+Probe: Celsius temp = 100done
+#+end_example
+
+#+begin_src scheme :results none
+(define (has-value? x)
+  ?)
+(define (get-value x)
+  ?)
+(define (set-value! x v informant)
+  ?)
+(define (forget-value! x retractor)
+  ?)
+(define (connect conn new-constraint)
+  ?)
+#+end_src
+
+#+NAME: constraint
+#+begin_src racket
+(define (adder a1 a2 sum)
+  (define (process-new-value)
+    (cond [(and (has-value? a1) (has-value? a2))
+           (set-value! sum
+                       (+ (get-value a1) (get-value a2))
+                       me)]
+          [(and (has-value? a1) (has-value? sum))
+           (set-value! a2
+                       (- (get-value sum) (get-value a1))
+                       me)]
+          [(and (has-value? a2) (has-value? sum))
+           (set-value! a1
+                       (- (get-value sum) (get-value a2))
+                       me)]))
+  (define (process-forget-value)
+    (forget-value! sum me)
+    (forget-value! a1 me)
+    (forget-value! a2 me)
+    (process-new-value))
+  (define (me request)
+    (cond [(eq? request 'I-have-a-value)
+           (process-new-value)]
+          [(eq? request 'I-lost-my-value)
+           (process-forget-value)]
+          [else (error "Unknown request -- ADDER" request)]))
+  (connect a1 me)
+  (connect a2 me)
+  (connect sum me)
+  me)
+
+(define (multiplier m1 m2 product)
+  (define (has-value-zero? x)
+    (and (has-value? x) (= (get-value x) 0)))
+  (define (process-new-value)
+    (cond [(or (has-value-zero? m1) (has-value-zero? m2))
+           (set-value! product 0 me)]
+          [(and (has-value? m1) (has-value? m2))
+           (set-value! product
+                       (* (get-value m1) (get-value m2))
+                       me)]
+          [(and (has-value? product) (has-value? m1))
+           (set-value! m2
+                       (/ (get-value product) (get-value m1))
+                       me)]
+          [(and (has-value? product) (has-value? m2))
+           (set-value! m1
+                       (/ (get-value product) (get-value m2))
+                       me)]))
+  (define (process-forget-value)
+    (forget-value! m1 me)
+    (forget-value! m2 me)
+    (forget-value! product me)
+    (process-new-value))
+  (define (me request)
+    (cond [(eq? request 'I-have-a-value)
+           (process-new-value)]
+          [(eq? request 'I-lost-my-value)
+           (process-forget-value)]
+          [else (error "Unknown request -- MULTPLIER" request)]))
+  (connect m1 me)
+  (connect m2 me)
+  (connect product me)
+  me)
+
+(define (constant v connector)
+  (define (me request)
+    (error "Unknown request -- CONSTANT" request))
+  (connect connector me)
+  (set-value! connector v me)
+  me)
+
+(define (probe name connector)
+  (define (print-probe value)
+    (newline)
+    (display "Probe: ")
+    (display name)
+    (display " = ")
+    (display value))
+  (define (process-new-value)
+    (print-probe (get-value connector)))
+  (define (process-forget-value)
+    (print-probe "?"))
+  (define (me request)
+    (cond [(eq? request 'I-have-a-value)
+           (process-new-value)]
+          [(eq? request 'I-lost-my-value)
+           (process-forget-value)]
+          [else (error "Unknown request -- PROBE" request)]))
+  (connect connector me)
+  me)
+
+
+(define (inform-about-value constraint)
+  (constraint 'I-have-a-value))
+(define (inform-about-no-value constraint)
+  (constraint 'I-lost-my-value))
+#+end_src
+
+#+NAME: connector
+#+begin_src racket :results none
+(define (for-each-except exception procedure lst)
+  (define (loop items)
+    (cond [(null? items) 'done]
+          [(eq? (car items) exception) (loop (cdr items))]
+          [else (procedure (car items))
+                (loop (cdr items))]))
+  (loop lst))
+
+(define (make-connector)
+  (let ([value #f] [informant #f] [constraints '()])
+    (define (set-my-value! newval setter)
+      (cond [(not (has-value? me))
+             (set! value newval)
+             (set! informant setter)
+             (for-each-except setter
+                              inform-about-value
+                              constraints)]
+            [(not (= value newval))
+             (error "Contradiction" (list value newval))]
+            [else 'ignored]))
+    (define (forget-my-value! retractor)
+      (if (eq? retractor informant)
+          (begin (set! informant #f)
+                 (for-each-except retractor
+                                  inform-about-no-value
+                                  constraints))
+          'ignored))
+    (define (connect new-constraint)
+      (if (not (memq new-constraint constraints))
+          (set! constraints
+                (cons new-constraint constraints)))
+      (if (has-value? me)
+          (inform-about-value new-constraint))
+      'done)
+    (define (me request)
+      (cond [(eq? request 'has-value?)
+             (if informant true false)]
+            [(eq? request 'value) value]
+            [(eq? request 'set-value!) set-my-value!]
+            [(eq? request 'forget!) forget-my-value!]
+            [(eq? request 'connect) connect]
+            [(eq? request 'debug)
+             (map display (list value "," informant "," constraints ".")) 'done]
+            [else (error "Unknown request -- MAKE-CONNECTOR" request)]))
+    me))
+
+(define (has-value? connector)
+  (connector 'has-value?))
+(define (get-value connector)
+  (connector 'value))
+(define (set-value! connector v informant)
+  ((connector 'set-value!) v informant))
+(define (forget-value! connector retractor)
+  ((connector 'forget!) retractor))
+(define (connect connector new-constraint)
+  ((connector 'connect) new-constraint))
+#+end_src
+
+*** 3.33
+
+The constraint network is like this:
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+(define (average-constraint a b res)
+  (let ([sum (make-connector)]
+        [two (make-connector)])
+    (constant 2 two)
+    (list (adder a b sum) (multiplier res two sum))))
+
+(define x (make-connector))
+(define y (make-connector))
+(define avg (make-connector))
+
+(average-constraint x y avg)
+(probe "x" x)
+(probe "y" y)
+(probe "avg" avg)
+
+(set-value! x 4 'user)
+(set-value! y 2 'user)
+
+(forget-value! x 'user)
+(set-value! avg 5 'user)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+(#<procedure:...rg-babel-X2kgeO.rkt:79:2> #<procedure:...rg-babel-X2kgeO.rkt:113:2>)
+#<procedure:...rg-babel-X2kgeO.rkt:142:2>
+#<procedure:...rg-babel-X2kgeO.rkt:142:2>
+#<procedure:...rg-babel-X2kgeO.rkt:142:2>
+
+Probe: x = 4done
+
+Probe: y = 2
+Probe: avg = 3done
+
+Probe: x = ?
+Probe: avg = ?done
+
+Probe: avg = 5
+Probe: x = 8done
+#+end_example
+
+Add a `me` into this, and combine the adder and multiplier to be a new constraint.
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+(define (averager a b c)
+  (let ([sum (make-connector)]
+        [two (make-connector)])
+    (constant 2 two)
+    (let ([add (adder a b sum)]
+          [mul (multiplier two c sum)])
+      (define (process-new-value)
+        (cond [(and (has-value? a) (has-value? b))
+               (inform-about-value add)
+               (inform-about-value mul)]
+              [else
+               (inform-about-value mul)
+               (inform-about-value add)])
+        me)
+      (define (process-forget-value)
+        (forget-value! a add)
+        (forget-value! b add)
+        (forget-value! sum add)
+        (forget-value! c mul)
+        (process-new-value))
+      (define (me req)
+        (cond [(eq? req 'I-have-a-value) (process-new-value)]
+              [(eq? req 'I-lost-my-value) (process-forget-value)]
+              [else (error "Unknown request -- AVERAGER" req)]))
+      (connect a me)
+      (connect b me)
+      (connect c me)
+      me)))
+
+(define x (make-connector))
+(define y (make-connector))
+(define avg (make-connector))
+
+(averager x y avg)
+(probe "x" x)
+(probe "y" y)
+(probe "avg" avg)
+
+(set-value! x 4 'user)
+(set-value! y 2 'user)
+
+(forget-value! x 'user)
+(set-value! avg 5 'user)
+
+(x 'debug)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+#<procedure:...rg-babel-astWvv.rkt:176:6>
+#<procedure:...rg-babel-astWvv.rkt:142:2>
+#<procedure:...rg-babel-astWvv.rkt:142:2>
+#<procedure:...rg-babel-astWvv.rkt:142:2>
+
+Probe: x = 4done
+
+Probe: y = 2
+Probe: avg = 3done
+
+Probe: x = ?
+Probe: avg = ?done
+
+Probe: avg = 5
+Probe: x = 8done
+8,#<procedure:...rg-babel-astWvv.rkt:79:2>,(#<procedure:...rg-babel-astWvv.rkt:142:2> #<procedure:...rg-babel-astWvv.rkt:176:6> #<procedure:...rg-babel-astWvv.rkt:79:2>).done
+#+end_example
+
+This code looks elegant. But there is one thing to be concerned: the constraints stored in a connector are now not irrelative. Let me consider the `x` in above test code: it have constraints of src_racket[:exports code]{(list averager add probe)}, and the `add` constraint is added by `averager`.
+
+*** 3.34
+
+#+NAME: 3-34
+#+begin_src racket :results none
+(define (squarer a b)
+  (multiplier a a b))
+#+end_src
+
+Let me consider the src_racket[:exports code]{(set-value! a 2)}, this connect multiplier constraints twice to the `a`. The `process-new-value` in the constraint will be executed twice but still evaluated to right result.
+
+While for src_racket[:exports code]{(set-value! b 9)}, the constraint find that only b have value and the other to don't. So there will be no result.
+
+#+begin_src racket :results none :noweb-ref test-squarer
+(define a (make-connector))
+(define b (make-connector))
+(probe "a: " a) (probe "b: " b)
+
+(squarer a b)
+(set-value! a 2 'user)
+
+(forget-value! a 'user)
+(set-value! b 9 'user)
+(a 'debug)
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+;<<3-34>>
+;<<test-squarer>>
+#+end_src
+
+#+RESULTS:
+#+begin_example
+#<procedure:...rg-babel-6KMMSF.rkt:142:2>
+#<procedure:...rg-babel-6KMMSF.rkt:142:2>
+#<procedure:...rg-babel-6KMMSF.rkt:113:2>
+
+Probe: b:  = 4
+Probe: a:  = 2done
+
+Probe: b:  = ?
+Probe: a:  = ?done
+
+Probe: b:  = 9done
+2,#f,(#<procedure:...rg-babel-6KMMSF.rkt:113:2> #<procedure:...rg-babel-6KMMSF.rkt:142:2>).done
+#+end_example
+
+*** 3.35
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+;<<square>>
+(define (squarer a b)
+  (define (process-new-value)
+    (if (has-value? b)
+        (if (< (get-value b) 0)
+            (error "square less than 0 -- SQUARER" (get-value b))
+            (begin (set-value! a (sqrt (get-value b)) me)
+                   me))
+        (if (has-value? a)
+            (begin (set-value! b (square (get-value a)) me)
+               me))))
+  (define (process-forget-value)
+    (forget-value! a me)
+    (forget-value! b me)
+    (process-new-value)
+    )
+  (define (me req)
+    (cond [(eq? req 'I-have-a-value) (process-new-value)]
+          [(eq? req 'I-lost-my-value) (process-forget-value)]
+          [else (error "Unknown request -- SQUARER" req)]))
+  (connect a me)
+  (connect b me)
+  me)
+;<<test-squarer>>
+#+end_src
+
+#+RESULTS:
+#+begin_example
+#<procedure:...rg-babel-YPWdV3.rkt:142:2>
+#<procedure:...rg-babel-YPWdV3.rkt:142:2>
+#<procedure:...rg-babel-YPWdV3.rkt:172:2>
+
+Probe: b:  = 4
+Probe: a:  = 2done
+
+Probe: b:  = ?
+Probe: a:  = ?done
+
+Probe: a:  = 3
+Probe: b:  = 9done
+3,#<procedure:...rg-babel-YPWdV3.rkt:172:2>,(#<procedure:...rg-babel-YPWdV3.rkt:172:2> #<procedure:...rg-babel-YPWdV3.rkt:142:2>).done
+#+end_example
+
+*** 3.36
+
+For code:
+
+#+begin_src racket :results none
+(define a (make-connector))
+(define b (make-connector))
+(set-value! a 10 'user)
+#+end_src
+
+When evaluating src_racket[:exports code]{(for-each-except setter inform-about-value constraints)} of connector a, the environment diagram is:
+
+#+begin_src
+table <- global: a(#<procedure:((request), ...)>), b(...), make-connector(...), set-value!((connector, v, informant), ...), has-value?(...), ...
+
+by-make-connector-a <- E1: (global), value(#f), informant(#f), constraints(nil), me((request), ...), set-my-value!(...), ...
+
+by-make-connector-b <- E2: (global), ...
+
+by-set-a-10-user <- E3: (global), connector(a), v(10), informat('user), ...
+
+by-connector-set-value <- E4: (E1), request('set-value!)
+
+by-set-my-value <- E5: (E1), newval(10), setter('user), ...
+
+by-for-each-except <- E6: (global), exception('user), procedure(inform-about-value), lst(nil)
+#+end_src
+
+*** 3.37
+
+#+begin_src racket :noweb yes :results output
+;<<connector>>
+;<<constraint>>
+(define (c+ x y)
+  (let ([z (make-connector)])
+    (adder x y z)
+    z))
+
+(define (c3-third constraint-three x y)
+  (let ([z (make-connector)])
+    (constraint-three x y z)
+    z))
+(define (c3-second constraint-three x z)
+  (let ([y (make-connector)])
+    (constraint-three x y z)
+    y))
+(define (c* x y) (c3-third multiplier x y))
+(define (c/ z x) (c3-second multiplier x z))
+(define (cv v)
+  (let ([new-constant (make-connector)])
+    (constant v new-constant)
+    new-constant))
+
+(define (celsius-fahrenheit-converter x)
+  (c+ (c* (c/ (cv 9) (cv 5))
+          x)
+      (cv 32)))
+
+(define C (make-connector))
+(define F (celsius-fahrenheit-converter C))
+
+(probe "Celsius temp" C)
+(probe "Fahrenheit temp" F)
+
+(set-value! C 25 'user)
+
+(forget-value! C 'user)
+
+(set-value! F 212 'user)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+#<procedure:...rg-babel-CpHojq.rkt:142:2>
+#<procedure:...rg-babel-CpHojq.rkt:142:2>
+
+Probe: Celsius temp = 25
+Probe: Fahrenheit temp = 77done
+
+Probe: Celsius temp = ?
+Probe: Fahrenheit temp = ?done
+
+Probe: Fahrenheit temp = 212
+Probe: Celsius temp = 100done
+#+end_example
+
+* Book 3.4 Concurrency: Time Is of the Essence
+
+** Book 3.4.1 The Nature of Time in Concurrent Systems
+
+*** 3.38
+
+Peter, Paul and Mary share an account and:
+
+#+begin_src
+(Balance is 100 at begin)
+Peter: (set! balance (+ balance 10))
+Paul:  (set! balance (- balance 20))
+Mary:  (set! balance (- balance (/ balance 2)))
+#+end_src
+
+a) If they are not executed concurrently. When Mary withdraw matters. All four passible result of balance can be: 40(50+10-20), 35(110/2-20), 50(80/2+10), 45(90/2).
+b) Concurrently. There's a lot possibilities. I tend to consider that each operation can be divided to read balance and write new balance. Thus an arrangement $A_6^6 = 720$ or maybe less, considering the three people may all read the balance then anyone to change and the order of reading not matters, to be $A_3^3 + C_3^2C_3^1A_3^3 + C_3^1C_3^1A_3^3 = 19 * 6 = 114$. Or less? $A_4^3 + C_3^1A_4^2 + A_4^1 = 24 + 36 + 4 = 94$. This still more than 4 in question a).
+   For example, after Mary withdraw, Peter is about to deposit and Paul is about to withdraw. Peter read the balance is 50 and then try to change the balance to 60, before this Paul read the balance 50 and change to 30. In the end, balance changes to 60.
+
+** Book 3.4.2 Mechanisms of Controlling Concurrency
+
+*** example
+
+The 20 possibilities to combine the can be generated by
+#+begin_src racket :results none
+(permutation ('a 'b 'c 'x 'y 'z))
+(define (ordered? order lst)
+  (if (null? order) #t
+      (let ([res (memq (car order) lst)])
+        (if res (ordered? (cdr order) res)
+            #f)))
+(filter (lambda (lst) (and (ordered? ('a 'b 'c) lst)
+                           (ordered? ('x 'y 'z)))) possibilities)
+#+end_src
+
+
+Or use interpolation method: there's 4 position of (a b c) to insert events in (x y z), or expressed as [? a ? b ? c ?] while the "?" can be [x y z] or [x y] or [y z] or [x] or [z]. Thus to $20 = C_2^1 \cdot (C_4^1 + (1 + 2 + 3) \cdot 2 \div 2)$.
+
+*** 3.39
+
+#+begin_src racket :results none
+(define x 10)
+(define s (make-serializer))
+(parallel-execute (lambda () (set! x ((s (lambda () (* x x))))))
+                  (s (lambda () (set! x (+ x 1)))))
+#+end_src
+
+From 101, 121, 110, 11, 100, the results of x may be one of 100, 101, 121.
+
+There are only 3 operations: get-x-and-square, inc-x, set-the-square, and the set-the-square should be executed after get-x-and-square. So there's only 3 possibility.
+
+*** 3.40
+
+#+begin_src racket :results none
+(define x 10)
+(parallel-execute (lambda () (set! x (* x x)))
+                  (lambda () (set! x (* x x x))))
+#+end_src
+
+100^3 and 1000^2, 100 and 1000, 10*1000 and 10*100*100 and 10*10*100: 10^2, 10^3, 10^4, 10^5, 10^6.
+
+For below, only 10^6. (100^3 or 1000^2)
+
+#+begin_src racket :results none
+(define x 10)
+(parallel-execute (s (lambda () (set! x (* x x))))
+                  (s (lambda () (set! x (* x x x)))))
+#+end_src
+
+*** 3.41
+
+#+begin_src racket
+(define (make-account balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (let ((protected (make-serializer)))
+    (define (dispatch m)
+      (cond ((eq? m 'withdraw) (protected withdraw))
+            ((eq? m 'deposit) (protected deposit))
+            ((eq? m 'balance)
+             ((protected (lambda () balance)))) ; serialized
+            (else (error "Unknown request -- MAKE-ACCOUNT"
+                         m))))
+    dispatch))
+#+end_src
+
+But the getter of `balance` doesn't change its value.
+
+Although, here's a embarassing condition that, if Bob share a same account with Paul, and the Bob deside to withdraw 100 after he see the balance is 100 but failed because Paul withdraw first right before Bob withdraw 100.
+
+*** 3.42
+
+#+begin_src racket :results none
+(define (make-account balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (let ((protected (make-serializer)))
+    (let ((protected-withdraw (protected withdraw))
+          (protected-deposit (protected deposit)))
+      (define (dispatch m)
+        (cond ((eq? m 'withdraw) protected-withdraw)
+              ((eq? m 'deposit) protected-deposit)
+              ((eq? m 'balance) balance)
+              (else (error "Unknown request -- MAKE-ACCOUNT"
+                           m))))
+      dispatch)))
+#+end_src
+
+This disallow parallel execution between withdraw and deposit. But this can't prevent parallel of multiple withdraw executing or multiple deposit executing.
+
+Just like Exercise 3.40, in this form:
+
+#+begin_src racket :results none
+(define balance x)
+(parallel-execute (lambda () (set! balance (+ balance amout1)))
+                  (lambda () (set! balance (+ balance amout2))))
+#+end_src
+
+*** 3.43
+
+#+NAME: account-exchange
+#+begin_src racket :results none
+(define (exchange acc1 acc2)
+  (let ([diff (- (acc1 'balance) (acc2 'balance))])
+    ((acc1 'withdraw) diff)
+    ((acc2 'deposit) diff)))
+#+end_src
+
+Maybe we can accept that the src_racket[:exports code]{((acc1 'withdraw) diff)} and src_racket[:exports code]{((acc2 'deposit) diff)} executed parallelly since the change of balance is serialized. The vulnerability lays at getting the value of `diff`.
+
+**** exp1
+
+As for src_racket[:exports code]{(exchange acc1 acc2)} and src_racket[:exports code]{(exchange acc1 acc3)}:
+
+#+begin_src
+execution diff1=10-20 -> diff2=10-30 -> acc1 'withdraw diff1 -> acc1 'withdraw diff2 -> acc2 'deposit diff1 -> acc3 'depost diff2
+acc1            10            10                20                        40                     40                      40
+acc2            20            20                10                        10                     20                      20
+acc3            30            30                30                        30                     30                      10
+#+end_src
+
+This due to the the computation of `diff` can be executed between the other exchange process when the other have computed its `diff` to goto modifying the value of accounts.
+
+****  exp2
+
+src_racket[:exports code]{(exchange acc1 acc2)} and src_racket[:exports code]{(exchange acc2 acc3)}:
+
+#+begin_src
+execution diff1=10-20 -> acc1 'withdraw diff1 -> diff2=20-30 -> acc2 'withdraw diff2 -> acc3 'depost diff2 -> acc2 'deposit diff1
+acc1            10               20                   20                  20                      20                   20
+acc2            20               20                   20                  30                      30                   20
+acc3            30               30                   30                  30                      20                   20
+#+end_src
+
+This due to the computation of `diff` to get the balance of two account is not atomic.
+
+*** 3.44
+
+#+begin_src racket :results none
+(define (transfer from-acc to-acc amount)
+  ((from-acc 'withdraw) amout)
+  ((to-acc 'deposit) amout))
+#+end_src
+
+This is correct code since the operation to change the balance is atmoic. Not like the `exchange` in Exercise 3.43, the value of the amount is determinted as the argument, and the wrong cases not happen with this code.
+
+*** 3.45
+
+Firstly I'd like to define a expression method for a queue. The `|c b a>` means a queue with element `a`, `b`, `c`, and, the head is `a` follows a ">" and rear is `c` followed by "|".
+
+The serial execution behaves like a FIFO queue. I use this to express serials.
+
+#+begin_src racket :results none
+(define (make-account-and-serializer balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (let ((balance-serializer (make-serializer)))
+    (define (dispatch m)
+      (cond ((eq? m 'withdraw) (balance-serializer withdraw))
+            ((eq? m 'deposit) (balance-serializer deposit))
+            ((eq? m 'balance) balance)
+            ((eq? m 'serializer) balance-serializer)
+            (else (error "Unknown request -- MAKE-ACCOUNT"
+                         m))))
+    dispatch))
+
+(define (deposit account amount)
+ ((account 'deposit) amount))
+#+end_src
+
+The above codes are all right. But when it comes to `serialized-exchange`, these code are not proper.
+
+#+begin_src racket :noweb yes
+;<<account-exchange>>
+(define (serialized-exchange account1 account2)
+  (let ((serializer1 (account1 'serializer))
+        (serializer2 (account2 'serializer)))
+    ((serializer1 (serializer2 exchange))
+     account1
+     account2)))
+#+end_src
+
+When executing a process of `serialized-exchange`, the serial from `|(serializer2 exchange) exchange>` to `|(acc1 'withdraw) (serializer2 exchange) exchange>`.
+The `(acc1 'withdraw)` is waiting the `exchange` to complete even if there's a single process(thread)! This is a deadlock.
+
+*** 3.46
+
+#+begin_src racket :results none
+(define (make-serializer)
+  (let ([mutex (make-mutex)])
+    (lambda (p)
+      (define (serialized-p . args)
+        (mutex 'aquire)
+        (let ([val (apply p args)])
+          (mutex 'release)
+          val))
+      serialized-p)))
+
+(define (make-mutex)
+  (let ([cell (list false)])
+    (define (the-mutex m)
+      (cond [(eq? m 'aquire)
+             (if (test-and-set! cell)
+                 (the-mutex 'aquire))]
+            [(eq? m 'release) (clear! cell)]))
+    the-mutex))
+
+(define (clear! cell)
+  (set-car! cell false))
+(define (test-and-set! cell)
+  (if (car cell)
+      true
+      (begin (set-car! cell true)
+             false)))
+#+end_src
+
+If the `test-and-set!` is not atomic, two process may execute the `if` statement simultaneously, the mutex will fail.
+
+#+begin_src
+execute (make-mutex) -> proc1: (mutex 'aquire),  -into> proc1: (test-and-set! cell), -into> proc1: (if (car cell) ...), -into> proc1: (begin (set-car! cell ture) ...)
+                        proc2: (mutex 'aquire)          proc2: (test-and-set! cell)         proc2: (if (car cell) ...)         proc2: (begin (set-car! cell ture) ...)
+cell         (#f)                  (#f)                         (#f)                               (#f)                                   (#t)
+#+end_src
+
+*** 3.47
+
+The interface names are from racket standard library, see the extra section below.
+
+**** a) semaphore based on mutex
+
+#+begin_src racket :results none
+(define (mutex-execute mutex f . args)
+  (mutex 'aquire)
+  (apply f args)
+  (mutex 'release))
+
+(define (make-semaphore max-proc-num)
+  (let ([mutex (make-mutex)] [n max-proc-num])
+    (define (semaphore-wait)
+      (define spin semaphore-wait)
+      (mutex-execute mutex
+                     (lambda ()
+                       (if (= n 0) (spin)
+                           (set! n (dec n))))))
+    (define (semaphore-post)
+      (mutex-execute mutex
+                     (lambda ()
+                       (if (= n max-proc-num)
+                           (error "Do not support increase maximum process number -- MAKE-SEMAPHORE" n)
+                           (set! n (inc n))))))
+    (define (dispatch m)
+      (cond [(eq? m 'semaphore-wait) semaphore-wait]
+            [(eq? m 'semaphore-post) semaphore-post]
+            [else (error "Unknown operation -- MKAE-SEMAPHORE" m)]))))
+#+end_src
+
+**** b) semaphore based on test-and-set
+
+#+begin_src racket :results none
+(define (make-cell) (list false))
+(define (atomic-execute-by-cell cell f . args)
+  (define (spin) (atomic-execute-by-cell
+                  cell (lambda () (apply f args))))
+  (if (test-and-set! cell)
+      (spin)
+      (apply f args)))
+
+(define (make-semaphore max-proc-num)
+  (let ([mutex (make-mutex)] [n max-proc-num])
+    (define (semaphore-wait)
+      (define spin semaphore-wait)
+      (atomic-execute-by-cell cell
+                              (lambda ()
+                                (if (= n 0) (spin)
+                                    (set! n (dec n))))))
+    (define (semaphore-post)
+      (atomic-execute-by-cell cell
+                              (lambda ()
+                                (if (= n max-proc-num)
+                                    (error "Do not support increase maximum process number -- MAKE-SEMAPHORE" n)
+                                    (set! n (inc n))))))
+    (define (dispatch m)
+      (cond [(eq? m 'semaphore-wait) semaphore-wait]
+            [(eq? m 'semaphore-post) semaphore-post]
+            [else (error "Unknown operation -- MKAE-SEMAPHORE" m)]))))
+#+end_src
+
+*** extra
+
+I use racket and there's no `without-interrupts` which in the MIT scheme.
+
+#+begin_src racket
+without-interrupts
+#+end_src
+
+#+RESULTS:
+: c:\Users\asu\AppData\Local\Temp\org-babel-Ddl7WA.rkt:5:0: without-interrupts: unbound identifier
+:   in: without-interrupts
+:   location...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-Ddl7WA.rkt:5:0
+
+I can use semaphore in racket standard library to simulate a `test-and-set!`. This means they can implement each other.
+
+Below use `#lang racket` with racket standard library, and these may not follow sicp scheme syntax.
+
+#+begin_src racket :lang racket
+(define (make-cell)
+  (let ([v #f] [sema (make-semaphore 1)])
+    (define (clear!) (call-with-semaphore sema (lambda () (set! v #t) #f)))
+    (define (test-and-set!)
+      (let ([res #f])
+        (call-with-semaphore sema
+                             (lambda ()
+                               (if v true (begin (set! v true)
+                                                 false))))))
+    (define (dispatch m)
+      (cond [(eq? m 'clear!) clear!]
+            [(eq? m 'test-and-set!) test-and-set!]
+            [else (error "Unknown opearaion -- MAKE-CELL" m)]))
+    dispatch))
+(define (clear! cell) ((cell 'clear!)))
+(define (test-and-set! cell) ((cell 'test-and-set!)))
+#+end_src
+
+***  3.48
+
+#+begin_src racket :noweb yes :results none
+(define (make-counter start)
+  (define (count)
+    (begin (set! start (inc start))
+           start))
+  count)
+
+(define (make-id-generator) (make-counter 1))
+(define id-generator (make-id-generator))
+
+(define (make-account-and-serializer balance)
+  (define (withdraw amount)
+    (if (>= balance amount)
+        (begin (set! balance (- balance amount))
+               balance)
+        "Insufficient funds"))
+  (define (deposit amount)
+    (set! balance (+ balance amount))
+    balance)
+  (let ((balance-serializer (make-serializer)) (id (id-generator)))
+    (define (dispatch m)
+      (cond ((eq? m 'withdraw) withdraw)
+            ((eq? m 'deposit) deposit)
+            ((eq? m 'balance) balance)
+            ((eq? m 'serializer) balance-serializer)
+            ((eq? m 'id) id)
+            (else (error "Unknown request -- MAKE-ACCOUNT"
+                         m))))
+    dispatch))
+
+;<<account-exchange>>
+(define (serialized-exchange account1 account2)
+  (let ((serializer1 (account1 'serializer))
+        (serializer2 (account2 'serializer)))
+    ((if (< (account1 'id) (account2 'id))
+         (serializer2 (serializer1 exchange))
+         (serializer1 (serializer2 exchange)))
+     account1
+     account2)))
+#+end_src
+
+By this way, parallel execution of `(exchange acc1 acc2)` with `(exchange acc2 acc1)` won't makes simultaneous aquires of mutex of two exchange processes to each other.
+Or to say, it force the lock order to prevent the case leads to deadlock.
+
+Anothet thing to concern is that the `make-id-generator` is not implemented to be thread safe. (It could be but I'm lazy)
+
+*** 3.49
+
+This question is hard and I really don't know how to design a case which deadlock inevitable by any solution.
+If this question only means to image a situation that the id method will failure, there's a example: in a certain time, to exchange balance of one certain account with the account have greatest balance; execute this by multiple processes parallelly. While this can be solved by use `big lock` to all accounts.
 
 * Helper procedures
 
@@ -1681,7 +2623,6 @@ For example, above code generate a segment src_racket[:exports code]{(3 ((lambda
          (cons (car lst) (take-when f (cdr lst)))]
         [else nil]))
 #+end_src
-
 
 #+NAME: square
 #+begin_src racket :results none
