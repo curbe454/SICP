@@ -2316,7 +2316,7 @@ acc3            30            30                30                        30    
 
 This due to the the computation of `diff` can be executed between the other exchange process when the other have computed its `diff` to goto modifying the value of accounts.
 
-****  exp2
+**** exp2
 
 src_racket[:exports code]{(exchange acc1 acc2)} and src_racket[:exports code]{(exchange acc2 acc3)}:
 
@@ -2523,7 +2523,7 @@ Below use `#lang racket` with racket standard library, and these may not follow 
 (define (test-and-set! cell) ((cell 'test-and-set!)))
 #+end_src
 
-***  3.48
+*** 3.48
 
 #+begin_src racket :noweb yes :results none
 (define (make-counter start)
@@ -2576,15 +2576,1154 @@ Anothet thing to concern is that the `make-id-generator` is not implemented to b
 This question is hard and I really don't know how to design a case which deadlock inevitable by any solution.
 If this question only means to image a situation that the id method will failure, there's a example: in a certain time, to exchange balance of one certain account with the account have greatest balance; execute this by multiple processes parallelly. While this can be solved by use `big lock` to all accounts.
 
+*  3.5 Streams
+
+** 3.5.1 Streams are Delayed Lists
+
+*** exp
+
+#+NAME: cons-stream
+#+begin_src racket :results none :noweb-ref stream
+; `the-empty-stream`, `stream-null?`, `cons-stream` are defined in sicp
+
+(define (stream-car stream) (car stream))
+(define (stream-cdr stream) (force (cdr stream)))
+
+(define (stream-ref s n)
+  (if (= n 0) (stream-car s)
+      (stream-ref (stream-cdr s) (dec n))))
+(define (stream-for-each f s)
+  (if (stream-null? s) 'done
+      (begin (f (stream-car s))
+             (stream-for-each f (stream-cdr s)))))
+(define (stream-enumerate-interval a b)
+  (if (> a b) the-empty-stream
+      (cons-stream a (stream-enumerate-interval (inc a) b))))
+(define (stream-filter pred s)
+  (cond [(stream-null? s) the-empty-stream]
+        [(pred (stream-car s))
+         (cons-stream (stream-car s) (stream-filter pred (stream-cdr s)))]
+        [else (stream-filter pred (stream-cdr s))]))
+(define (stream-take s n)
+  (if (zero? n) '()
+      (cons (stream-car s) (stream-take (stream-cdr s) (dec n)))))
+#+end_src
+
+I go to see some docs of R5RS and implement this.
+
+#+begin_src racket :results output :noweb yes
+(define (memo-proc proc)
+  (let ([already-run #f] [result #f])
+    (lambda ()
+      (if already-run
+          result
+          (begin (set! already-run #t)
+                 (set! result (proc))
+                 result)))))
+
+;; (define (delay expr) (memo-proc (lambda () expr))) ; not lazy
+(define-syntax delay
+  (syntax-rules ()
+    ([delay expr]
+     (memo-proc (lambda () expr)))))
+(define (force delayed) (delayed))
+
+(define the-empty-stream '())
+(define-syntax stream-cons
+  (syntax-rules ()
+    [(_ a b) (cons a (delay b))]))
+(define stream-car car)
+(define (stream-cdr s) (force (cdr s)))
+
+(define (stream-take s n)
+  (if (zero? n) '()
+      (cons (stream-car s) (stream-take (stream-cdr s) (dec n)))))
+
+(stream-cons 1 the-empty-stream)
+(stream-cdr (stream-cons 1 the-empty-stream))
+(define ones (stream-cons 1 ones)) ; see book 3.5.2
+(stream-take ones 10)
+#+end_src
+
+#+RESULTS:
+: (1 . #<procedure:...rg-babel-TNZDcj.rkt:6:4>)
+: ()
+: (1 1 1 1 1 1 1 1 1 1)
+
+I find that I can't implement a lazy fold function of stream...
+
+#+NAME: list->stream
+#+begin_src racket :noweb yes
+;<<fold>>
+(define (stream-fold-right-eager f init s)
+  (if (stream-null? s) init
+      (f (stream-car s) (stream-fold-right-eager f init (stream-cdr s)))))
+
+(define (list->stream lst)
+  ;; cannot use cons-stream directly to fold-right because it's not function
+  (fold-right (lambda (x acc) (cons-stream x acc)) the-empty-stream lst))
+(define (stream->list s)
+  (stream-fold-right-eager cons '() s))
+#+end_src
+
+Below fold is inspired from Exercise 3.63.
+
+#+NAME: stream-fold
+#+begin_src racket
+(define (stream-accumulate-fold-left f init s)
+  (if (stream-null? s) the-empty-stream
+      (cons-stream
+       init
+       (stream-accumulate-fold-left f
+                                    (f init (stream-car s))
+                                    (stream-cdr s)))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<stream-fold>>
+;<<higher-order>>
+(define (flip f2) (lambda (x y) (f2 y x)))
+(stream-take (stream-accumulate-fold-left (flip cons) nil ones) 10)
+#+end_src
+
+#+RESULTS:
+: (() (1) (1 1) (1 1 1) (1 1 1 1) (1 1 1 1 1) (1 1 1 1 1 1) (1 1 1 1 1 1 1) (1 1 1 1 1 1 1 1) (1 1 1 1 1 1 1 1 1))
+
+
+*** 3.50
+
+#+NAME: stream-map
+#+begin_src racket :noweb yes :results none :noweb-ref stream
+(define (stream-map proc . argstreams)
+  (if (stream-null? (car argstreams))
+      the-empty-stream
+      (cons-stream
+       (apply proc (map stream-car argstreams))
+       (apply stream-map
+              (cons proc (map stream-cdr argstreams))))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<list->stream>>
+(stream->list (stream-map +
+                          (list->stream (list 1 2 3))
+                          (list->stream (list 40 50 60))
+                          (list->stream (list 700 800 900))))
+#+end_src
+
+#+RESULTS:
+: (741 852 963)
+
+*** 3.51
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<displayln>>
+(define (show x) (displayln x) x)
+
+(define x (stream-map show (stream-enumerate-interval 0 10)))
+
+(stream-ref x 5) ; => 5
+; print integers in [0, 5], each number a line, then 5.
+(stream-ref x 7) ; => 7
+; print integers in 6 and 7, each number a line, then 7.
+#+end_src
+
+#+RESULTS:
+#+begin_example
+0
+1
+2
+3
+4
+5
+5
+6
+7
+7
+#+end_example
+
+*** 3.52
+
+This reminds me arithmetic sequence: $a_1 = 1, a_{n+1} = a_n + 1, S_n = a_1 + a_2 + ... + a_n$.
+
+See some values of `seq`, it's easy to know that in `seq`, two odd numbers follows two even numbers, and two even numbers follows to odd numbers. So the 8th number in `y` is the 2*8 + 8 mod 2 = 16th in `seq`, and it's 210-20-19-18-17=136.
+
+Notice that $1+2+3+4=10$ is multiple of 5, and $6+7+8+9=1+2+3+4+4*5$ is multiple of 5. For every 5 numbers in `seq`, the last two in the 5 numbers are multiple of 5.
+They are $0+10+0*4*5=10, 10+5=15, 15+10+1*4*5=30+15=45, 45+10=55, 55+10+2*4*5=105, 105+15=120, 190, 210$.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<displayln>>
+;<<list->stream>>
+(define display-stream stream->list)
+
+(define sum 0)
+(define (accum x)
+  (set! sum (+ x sum))
+  sum)
+
+(define seq (stream-map accum (stream-enumerate-interval 1 20))) ; 1, 3, 6, 10, ..., 210
+(define y (stream-filter even? seq))
+(define z (stream-filter (lambda (x) (= (remainder x 5) 0)) seq))
+
+(displayln (stream-ref y 7)) ; => 136
+(display-stream z) ; => 10, 15, 30, 35, ..., 190, 210
+#+end_src
+
+#+RESULTS:
+: 136
+: (10 15 45 55 105 120 190 210)
+
+If the `delay` is not implemented with `memo-proc`, the src_racket[:exports code]{(display-stream z)} would be wrong, because it will accumulate `sum` again from 1 in `seq`, while `sum` now is not 0 anymore.
+It will print 28+1, 29+2, 31+3, 34+4, ..., 28*20+190+20.
+
+And this is why some implementation of stream can only be consumed(iterated) once.
+
+** Book 3.5.2 Infinite Streams
+
+*** exp
+
+#+NAME: divisible
+#+begin_src racket :noweb yes :results output
+;<<cons-stream>>
+(define (integers-starting-from n)
+  (cons-stream n (integers-starting-from (inc n))))
+
+(define integers (integers-starting-from 1))
+
+(define (divisible? a m) (= (remainder a m) 0))
+
+(define no-sevens
+  (stream-filter (lambda (x) (not (divisible? x 7))) integers))
+
+(stream-take no-sevens 10)
+(stream-ref no-sevens 100)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 11)
+: 117
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define (fibgen a b)
+  (cons-stream a (fibgen b (+ a b))))
+
+(define fib (fibgen 1 1))
+
+(stream-take fib 10)
+#+end_src
+
+#+RESULTS:
+: (1 1 2 3 5 8 13 21 34 55)
+
+#+begin_src racket :noweb yes :results output
+;<<divisible>>
+(define (sieve stream)
+  (cons-stream
+   (stream-car stream)
+   (sieve (stream-filter
+           (lambda (x)
+             (not (divisible? x (stream-car stream))))
+           (stream-cdr stream)))))
+
+(define primes (sieve (integers-starting-from 2)))
+(stream-take primes 10)
+(stream-ref primes 50)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 11)
+: 117
+: (2 3 5 7 11 13 17 19 23 29)
+: 233
+
+#+NAME: add-streams
+#+begin_src racket :results none :noweb-ref stream
+(define (add-streams s1 s2) (stream-map + s1 s2))
+#+end_src
+
+#+NAME: integer
+#+begin_src racket :results none :noweb-ref stream
+(define ones (cons-stream 1 ones))
+(define integers (cons-stream 1 (add-streams ones integers)))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define fibs
+  (cons-stream 0
+               (cons-stream 1 (add-streams fibs (stream-cdr fibs)))))
+
+(stream-take ones 10)
+(stream-take integers 10)
+(stream-take fibs 10)
+#+end_src
+
+#+RESULTS:
+: (1 1 1 1 1 1 1 1 1 1)
+: (1 2 3 4 5 6 7 8 9 10)
+: (0 1 1 2 3 5 8 13 21 34)
+
+#+NAME: scale-stream
+#+begin_src racket :results none :noweb-ref stream
+(define (scale-stream s factor)
+  (stream-map (lambda (x) (* x factor)) s))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define double (cons-stream 1 (scale-stream double 2)))
+(stream-take double 10)
+#+end_src
+
+#+RESULTS:
+: (1 2 4 8 16 32 64 128 256 512)
+
+#+begin_src racket :noweb yes :results output
+;<<divisible>>
+;<<square>>
+(define primes
+  (let ([prime? (lambda (n)
+                  (define (iter ps)
+                    (cond [(> (square (stream-car ps)) n) #t]
+                          [(divisible? n (stream-car ps)) #f]
+                          [else (iter (stream-cdr ps))]))
+                  (iter (integers-starting-from 2)))])
+    (cons-stream
+     2
+     (stream-filter prime? (integers-starting-from 3)))))
+
+(stream-take primes 10)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 11)
+: 117
+: (2 3 5 7 11 13 17 19 23 29)
+
+*** 3.53
+
+But I should run the code to confirm I'm right. This below stream constructs a geometric sequence: $a_n = 2^{(n-1)}$.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define s (cons-stream 1 (add-streams s s)))
+
+(stream-take s 10)
+#+end_src
+
+#+RESULTS:
+: (1 2 4 8 16 32 64 128 256 512)
+
+***  3.54
+
+#+NAME: mul-streams
+#+begin_src racket :results none :noweb-ref stream
+(define (mul-streams a b) (stream-map * a b))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define factorials (cons-stream 1 (mul-streams factorials integers)))
+
+(stream-take factorials 10)
+#+end_src
+
+#+RESULTS:
+: (1 1 2 6 24 120 720 5040 40320 362880)
+
+*** 3.55
+
+#+NAME: partial-sums
+#+begin_src racket :results none :noweb-ref stream
+(define (partial-sums s) (cons-stream (stream-car s) (add-streams (partial-sums s) (stream-cdr s))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+
+(stream-take (partial-sums integers) 10)
+#+end_src
+
+#+RESULTS:
+: (1 3 6 10 15 21 28 36 45 55)
+
+*** 3.56
+
+I've solved this problem to generate an array of this in C++ using recursion: for each number in array generates 3 recursion calls, the most tricky point is to make choice between current function execution and newer 3 numbers with their 9 function calls. This implementation use merge other than make choices.
+
+#+NAME: merge-streams
+#+begin_src racket :results none
+(define (merge s1 s2)
+  (cond [(stream-null? s1) s2]
+        [(stream-null? s2) s1]
+        [else
+         (let ([s1car (stream-car s1)]
+               [s2car (stream-car s2)])
+           (cond [(< s1car s2car)
+                  (cons-stream s1car (merge (stream-cdr s1) s2))]
+                 [(> s1car s2car)
+                  (cons-stream s2car (merge s1 (stream-cdr s2)))]
+                 [else
+                  (cons-stream s1car (merge (stream-cdr s1)
+                                            (stream-cdr s2)))]))]))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<merge-streams>>
+(define s (cons-stream 1 (merge
+                          (scale-stream s 2)
+                          (merge (scale-stream s 3)
+                                 (scale-stream s 5)))))
+
+(stream-take s 20)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 12 15 16 18 20 24 25 27 30 32 36)
+
+*** 3.57
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define fibs (cons-stream 0
+                          (cons-stream 1
+                                       (add-streams fibs (stream-cdr fibs)))))
+
+(stream-take fibs 10)
+#+end_src
+
+By this way, the stream values will be memorized, so it needs only one `+` operation to compute a next item of fibonacci sequence.
+To compute the n-th item(n from 0), it needs $n-1 + floor(x^{-n})$ plus operation.
+
+If this mechanism(`memo-proc`) is not used, it needs to calucate the before item and a more before item($fib_{n-1}, fib_{n-2}$), but these two needs the more before items too. So this becomes to a tree recursion just like the function in Book 1.2.2.
+
+*** 3.58
+
+Below codes generates the fractional part of a division $\frac{num}{den}$ in order in base `radix`, if the input `num` is less than `den`; other wise the first element is sum of a quotient of a one-left-shifted of the division with the first firactional digit, then generates the fractional part. All results are expressed by base 10.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define (expand num den radix)
+  (cons-stream
+   (quotient (* num radix) den)
+   (expand (remainder (* num radix) den) den radix)))
+
+(stream-take (expand 1 7 10) 10) ; 1 4 2 8 5 7 ...
+(stream-take (expand 3 8 10) 10) ; 3 7 5 0 0 0 0 0 0 0
+(stream-take (expand 50 7 10) 10) ; 70 1 4 2 8 5 7 ...
+(stream-take (expand 3 8 8) 10) ; 3 0 0 0 0 0 ...
+(stream-take (expand 3 8 16) 10) ; 6 0 0 0 0 0 ...
+#+end_src
+
+#+RESULTS:
+: (1 4 2 8 5 7 1 4 2 8)
+: (3 7 5 0 0 0 0 0 0 0)
+: (71 4 2 8 5 7 1 4 2 8)
+: (3 0 0 0 0 0 0 0 0 0)
+: (6 0 0 0 0 0 0 0 0 0)
+
+*** 3.59
+
+#+NAME: negative-stream
+#+begin_src racket :results none :noweb-ref stream
+(define (negative-stream s)
+  (define (negative x) (- 0 x))
+  (stream-map negative s))
+#+end_src
+
+#+begin_src racket :noweb yes :results none :noweb-ref series
+(define (invert x) (/ 1 x))
+(define (stream-inexact s) (stream-map exact->inexact s))
+(define (accumulate-stream s) (stream-inexact (partial-sums s)))
+(define (items x series)
+  (define vars (cons-stream 1 (scale-stream vars x)))
+  (mul-streams vars series))
+(define (eval-series x item-number s)
+  (stream-ref (accumulate-stream (items x s)) (dec item-number)))
+
+(define (integrate-series s)
+  (mul-streams s (stream-map invert integers)))
+
+(define exp-series
+  (cons-stream 1 (integrate-series exp-series)))
+
+(define cosine-series
+  (cons-stream 1 (integrate-series (negative-stream sine-series))))
+(define sine-series
+  (cons-stream 0 (integrate-series cosine-series)))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<series>>
+(stream-take (integrate-series ones) 10)
+(stream-take exp-series 10)
+(stream-take cosine-series 10)
+(stream-take sine-series 10)
+
+(stream-take (accumulate-stream exp-series) 10)
+(stream-take (accumulate-stream sine-series) 10)
+(stream-take (accumulate-stream cosine-series) 10)
+#+end_src
+
+#+RESULTS:
+: (1 1/2 1/3 1/4 1/5 1/6 1/7 1/8 1/9 1/10)
+: (1 1 1/2 1/6 1/24 1/120 1/720 1/5040 1/40320 1/362880)
+: (1 0 -1/2 0 1/24 0 -1/720 0 1/40320 0)
+: (0 1 0 -1/6 0 1/120 0 -1/5040 0 1/362880)
+: (1.0 2.0 2.5 2.6666666666666665 2.7083333333333335 2.716666666666667 2.7180555555555554 2.7182539682539684 2.71827876984127 2.7182815255731922)
+: (0.0 1.0 1.0 0.8333333333333334 0.8333333333333334 0.8416666666666667 0.8416666666666667 0.841468253968254 0.841468253968254 0.8414710097001764)
+: (1.0 1.0 0.5 0.5 0.5416666666666666 0.5416666666666666 0.5402777777777777 0.5402777777777777 0.5403025793650794 0.5403025793650794)
+
+*** 3.60
+
+#+NAME: mul-series
+#+begin_src racket :noweb yes :noweb-ref series
+(define (mul-series s1 s2)
+  (cons-stream (* (stream-car s1) (stream-car s2))
+               (add-streams (scale-stream (stream-cdr s2) (stream-car s1))
+                            (mul-series (stream-cdr s1) s2))))
+#+end_src
+
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<series>>
+(define (square-series s) (mul-series s s))
+
+(stream-take (add-streams (square-series cosine-series)
+                          (square-series sine-series))
+             10)
+#+end_src
+
+#+RESULTS:
+: (1 0 0 0 0 0 0 0 0 0)
+
+*** 3.61
+
+#+NAME: invert-series
+#+begin_src racket :noweb yes :results none
+(define (invert-series s)
+  (cons-stream
+   1
+   (negative-stream (mul-series (stream-cdr s)
+                                (invert-series s)))))
+#+end_src
+
+*** 3.62
+
+#+NAME: div-series
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<series>>
+;<<invert-series>>
+(define (div-series s t)
+  (cond [(zero? (stream-car t)) (error "Division by zero -- DIV-SERIES" t)]
+        [(= (stream-car t) 1) (mul-series s (invert-series t))]
+        [else (mul-series s (scale-stream t (/ 1 (stream-car t))))]))
+
+(define tangent-series (div-series sine-series cosine-series))
+(eval-series (atan 0.5) 20 tangent-series)
+#+end_src
+
+#+RESULTS: div-series
+: 0.4999999999896264
+
+** Book 3.5.3 Exploiting the Stream Paradigm
+
+*** exp
+
+#+NAME: sqrt-stream
+#+begin_src racket :noweb yes :results none
+;<<average>>
+(define (sqrt-improve guess a)
+  (average guess (/ a guess)))
+(define (sqrt-stream n)
+  (define guesses
+    (cons-stream 1.0
+                 (stream-map (lambda (guess)
+                               (sqrt-improve guess n))
+                             guesses)))
+  guesses)
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<sqrt-stream>>
+(stream-take (sqrt-stream 2) 10)
+#+end_src
+
+#+RESULTS:
+: (1.0 1.5 1.4166666666666665 1.4142156862745097 1.4142135623746899 1.414213562373095 1.414213562373095 1.414213562373095 1.414213562373095 1.414213562373095)
+
+#+NAME: pi-stream
+#+begin_src racket :results none
+(define (pi-summands n)
+  (cons-stream (/ 1.0 n)
+               (stream-map - (pi-summands (+ n 2)))))
+(define pi-stream
+  (scale-stream (partial-sums (pi-summands 1)) 4))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pi-stream>>
+(stream-take pi-stream 10)
+#+end_src
+
+#+RESULTS:
+: (4.0 2.666666666666667 3.466666666666667 2.8952380952380956 3.3396825396825403 2.9760461760461765 3.2837384837384844 3.017071817071818 3.2523659347188767 3.0418396189294032)
+
+#+NAME: euler-transform
+#+begin_src racket :results none :noweb yes
+;<<square>>
+(define (euler-transform s)
+  (let ([s0 (stream-ref s 0)]
+        [s1 (stream-ref s 1)]
+        [s2 (stream-ref s 2)])
+    (cons-stream (- s2 (/ (square (- s2 s1))
+                          (+ s0 (* -2 s1) s2)))
+                 (euler-transform (stream-cdr s)))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pi-stream>>
+;<<euler-transform>>
+(stream-take (euler-transform pi-stream) 10)
+#+end_src
+
+#+RESULTS:
+: (3.166666666666667 3.1333333333333337 3.1452380952380956 3.13968253968254 3.1427128427128435 3.1408813408813416 3.142071817071818 3.1412548236077655 3.1418396189294033 3.141406718496503)
+
+#+NAME: accelerated-sequence
+#+begin_src racket
+(define (make-tableau transform s)
+  (cons-stream s
+               (make-tableau transform
+                             (transform s))))
+
+(define (accelerated-sequence transform s)
+  (stream-map stream-car (make-tableau transform s)))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pi-stream>>
+;<<euler-transform>>
+;<<accelerated-sequence>>
+(stream-take (accelerated-sequence euler-transform pi-stream) 10)
+#+end_src
+
+#+RESULTS:
+: (4.0 3.166666666666667 3.142105263157895 3.141599357319005 3.1415927140337785 3.1415926539752927 3.1415926535911765 3.141592653589778 3.1415926535897953 3.141592653589795)
+
+*** 3.63
+
+#+begin_src racket
+(define (sqrt-stream x)
+  (cons-stream 1.0
+               (stream-map (lambda (guess)
+                             (sqrt-improve guess x))
+                           (sqrt-stream x))))
+#+end_src
+
+This reminds me about Exercise 3.61. I exactly do like this. Compare to the `guesses` version, this would call `sqrt-stream` more times but fortunately they're memorized by the `memo-proc` before. If there's no memorization mechanism, this procedure would be slow.
+
+*** 3.64
+
+#+NAME: stream-limit
+#+begin_src racket :results none
+(define (stream-limit s err)
+  (define (iter before s)
+    (cond [(stream-null? s) #f]
+          [(stream-null? (stream-cdr s)) #f]
+          [else (if (< (abs (- (stream-car s) before)) err)
+                    (stream-car s)
+                    (iter (stream-car s) (stream-cdr s)))]))
+  (if (stream-null? s) #f
+      (iter (stream-car s) (stream-cdr s))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<sqrt-stream>>
+;<<stream-limit>>
+(define (sqrt x tolarance)
+  (stream-limit (sqrt-stream x) tolarance))
+
+(sqrt 2 0.00001)
+#+end_src
+
+#+RESULTS:
+: 1.4142135623746899
+
+*** 3.65
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<series>>
+(define positive-negative (cons-stream 1 (scale-stream positive-negative -1)))
+
+(define ln2-series
+  (mul-streams (stream-map (lambda (x) (/ 1 x)) integers)
+               positive-negative))
+(define ln2-stream (partial-sums ln2-series))
+
+;<<euler-transform>>
+;<<accelerated-sequence>>
+(stream-take (stream-inexact ln2-stream) 10)
+(stream-take (stream-inexact (accelerated-sequence euler-transform ln2-stream)) 8)
+#+end_src
+
+#+RESULTS:
+: (1.0 0.5 0.8333333333333334 0.5833333333333334 0.7833333333333333 0.6166666666666667 0.7595238095238095 0.6345238095238095 0.7456349206349207 0.6456349206349207)
+: (1.0 0.7 0.6932773109243697 0.6931488693329254 0.6931471960735491 0.6931471806635636 0.6931471805604039 0.6931471805599444)
+
+It converges slow.
+
+*** exp
+
+#+begin_src racket :results none :noweb-ref stream
+(define (interleave s1 s2)
+  (if (stream-null? s1) s2
+      (cons-stream (stream-car s1)
+                   (interleave s2 (stream-cdr s1)))))
+#+end_src
+
+#+NAME: pairs
+#+begin_src racket :results none :noweb-ref pair
+(define (pairs s t)
+  (cons-stream
+   (list (stream-car s) (stream-car t))
+   (interleave
+    (stream-map (lambda (x) (list (stream-car s) x)) (stream-cdr t))
+    (pairs (stream-cdr s) (stream-cdr t)))))
+#+end_src
+
+*** 3.66
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pairs>>
+(stream-take (pairs integers integers) 198)
+#+end_src
+
+#+RESULTS:
+: ((1 1) (1 2) (2 2) (1 3) (2 3) (1 4) (3 3) (1 5) (2 4) (1 6) (3 4) (1 7) (2 5) (1 8) (4 4) (1 9) (2 6) (1 10) (3 5) (1 11) (2 7) (1 12) (4 5) (1 13) (2 8) (1 14) (3 6) (1 15) (2 9) (1 16) (5 5) (1 17) (2 10) (1 18) (3 7) (1 19) (2 11) (1 20) (4 6) (1 21) (2 12) (1 22) (3 8) (1 23) (2 13) (1 24) (5 6) (1 25) (2 14) (1 26) (3 9) (1 27) (2 15) (1 28) (4 7) (1 29) (2 16) (1 30) (3 10) (1 31) (2 17) (1 32) (6 6) (1 33) (2 18) (1 34) (3 11) (1 35) (2 19) (1 36) (4 8) (1 37) (2 20) (1 38) (3 12) (1 39) (2 21) (1 40) (5 7) (1 41) (2 22) (1 42) (3 13) (1 43) (2 23) (1 44) (4 9) (1 45) (2 24) (1 46) (3 14) (1 47) (2 25) (1 48) (6 7) (1 49) (2 26) (1 50) (3 15) (1 51) (2 27) (1 52) (4 10) (1 53) (2 28) (1 54) (3 16) (1 55) (2 29) (1 56) (5 8) (1 57) (2 30) (1 58) (3 17) (1 59) (2 31) (1 60) (4 11) (1 61) (2 32) (1 62) (3 18) (1 63) (2 33) (1 64) (7 7) (1 65) (2 34) (1 66) (3 19) (1 67) (2 35) (1 68) (4 12) (1 69) (2 36) (1 70) (3 20) (1 71) (2 37) (1 72) (5 9) (1 73) (2 38) (1 74) (3 21) (1 75) (2 39) (1 76) (4 13) (1 77) (2 40) (1 78) (3 22) (1 79) (2 41) (1 80) (6 8) (1 81) (2 42) (1 82) (3 23) (1 83) (2 43) (1 84) (4 14) (1 85) (2 44) (1 86) (3 24) (1 87) (2 45) (1 88) (5 10) (1 89) (2 46) (1 90) (3 25) (1 91) (2 47) (1 92) (4 15) (1 93) (2 48) (1 94) (3 26) (1 95) (2 49) (1 96) (7 8) (1 97) (2 50) (1 98) (3 27) (1 99) (2 51) (1 100))
+
+This version of `pair` tries to take from row first, although the order of taking make little difference. The first row have more chances to be taken since the function call stack is not deep so the chances to be taken is not `dilute` by deep function calls.
+
+By the implementation of `interleave` I know that the `dilute` rate is 50%. Staring from the stream picked out the first pair, for each 16 pairs are taken in the 1st row(out of choosing 32 pairs), the pairs in the 2nd row are taken by 8 times, and 4 pairs in the 3rd row are taken.
+
+Thus the `(1, 100)` is the (100-1)*2=198-th pair in the pair stream.
+
+The `(100, 100)` is the first pair of the 100th row. To take this pair, 2 pairs in the 99th row are taken, with 4 pairs in the 98 row, ... They are $2^{100} - 2$ before this pair is choosed. This is about $10^{16}$.
+
+*** 3.67
+
+To combine all pairs in the table:
+
+|----------+-----------------------|
+| (S0, T0) | (S0, T1) (S0, T2) ... |
+|----------+-----------------------|
+| (S1, T0) | (S1, T1) (S1, T2) ... |
+| (S2, T0) | (S2, T1) (S2, T2) ... |
+| ...      | ...      ...          |
+|----------+-----------------------|
+
+I should regard them as four parts.
+
+#+NAME: pairs-swap
+#+begin_src racket :results none
+(define (pairs s t)
+  (cons-stream
+   (list (stream-car s) (stream-car t))
+   (interleave (stream-map (lambda (x) (list (stream-car s) x)) (stream-cdr t))
+               (interleave (stream-map (lambda (x) (list x (stream-car t))) (stream-cdr s))
+                           (pairs (stream-cdr s) (stream-cdr t))))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pairs-swap>>>
+(stream-take (pairs integers integers) 10)
+#+end_src
+
+#+RESULTS:
+: #<procedure:>>
+: ((1 1) (1 2) (2 1) (1 3) (2 2) (1 4) (3 1) (1 5) (2 3) (1 6))
+
+*** 3.68
+
+The below codes doesn't use `cons-stream`, so is not lazy. So it would executes to endless recursion.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+(define (pairs s t)
+  (interleave
+   (stream-map (lambda (x) (list (stream-car s) x)) t)
+   (pairs (stream-cdr s) (stream-cdr t))))
+
+;; (pairs integers integers)
+#+end_src
+
+*** 3.69
+
+#+NAME: triples
+#+begin_src racket :noweb-ref pair
+(define (triples s t r)
+  (let ([ps (pairs t r)])
+      (cons-stream
+       (cons (stream-car s) (stream-car ps))
+       (interleave (stream-map (lambda (pair) (cons (stream-car s) pair))
+                               ps)
+                   (triples (stream-cdr s) (stream-cdr t) (stream-cdr r))))))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pair>>
+;<<square>>
+(define triple-integers
+  (triples integers integers integers))
+
+(define pythagorean-triple
+  (stream-filter (lambda (triple) (= (+ (square (car triple))
+                                         (square (cadr triple)))
+                                      (square (caddr triple))))
+                 triple-integers))
+
+(stream-take triple-integers 20)
+(stream-take pythagorean-triple 5)
+#+end_src
+
+#+RESULTS:
+: ((1 1 1) (1 1 1) (2 2 2) (1 1 2) (2 2 2) (1 2 2) (3 3 3) (1 1 3) (2 2 3) (1 2 3) (3 3 3) (1 1 4) (2 3 3) (1 3 3) (4 4 4) (1 1 5) (2 2 4) (1 2 4) (3 3 4) (1 1 6))
+: ((3 4 5) (6 8 10) (5 12 13) (9 12 15) (8 15 17))
+
+*** 3.70
+
+Notice that the `merge-by` will filter out the element weigh the same value.
+The `weight` should be implemented carefully to distinguish `(1 3)` with `(2 2)` when the sum of elements is used in weight.
+
+Here I use a trick to descript difference of the pairs of the same weight in the fraction part of a number, and make use of the feature that the `>`, `<`, `=` can compare integers and real numbers, and scheme implements the rational number.
+The key to do this is to compress two numbers in the pair into one dimention, and put the value of the dimention into the original weights. This reminds me about a story about Hilbert's hotel...
+
+#+begin_src racket :results none :noweb-ref pair
+(define (merge-by weight s1 s2)
+  (cond [(stream-null? s1) s2]
+        [(stream-null? s2) s1]
+        [else
+         (let ([e1 (stream-car s1)] [e2 (stream-car s2)])
+           (let ([w1 (weight e1)] [w2 (weight e2)])
+             (cond
+               [(= w1 w2)
+                (cons-stream e1 (merge-by weight (stream-cdr s1)
+                                          (stream-cdr s2)))]
+               [(< w1 w2)
+                (cons-stream e1 (merge-by weight (stream-cdr s1) s2))]
+               [else ; >
+                (cons-stream e2 (merge-by weight s1 (stream-cdr s2)))])))]))
+(define (weighted-pairs w s1 s2)
+  (cons-stream
+   (list (stream-car s1) (stream-car s2))
+   (merge-by w
+             (stream-map
+              (lambda (x) (list (stream-car s1) x))
+              (stream-cdr s2))
+             (weighted-pairs w (stream-cdr s1) (stream-cdr s2)))))
+
+(define (weight-order-same-weight-pair w)
+  (define (combine-to-fraction x y)
+    (define (digits n)
+      (define (iter i acc)
+        (if (zero? i) acc
+            (iter (quotient i 10) (cons (remainder i 10) acc))))
+      (iter n '()))
+    (define (interleave-digits a b)
+      (cond [(and (null? a) (null? b)) '()]
+            [(null? a) (interleave-digits (list 0) b)]
+            [(null? b) (interleave-digits a (list 0))]
+            [else (cons (car a)
+                        (cons (car b)
+                              (interleave-digits (cdr a) (cdr b))))]))
+    (define (digits->fraction ds)
+      (define (iter rests f dividend)
+        (if (null? rests) f
+            (iter (cdr rests) (+ f (/ (car rests) dividend)) (* 10 dividend))))
+      (iter ds 0 10))
+    (digits->fraction (interleave-digits (digits x) (digits y))))
+  (lambda (pair)
+    (let ([weight (w pair)])
+      (+ (combine-to-fraction (car pair) (cadr pair))
+         weight))))
+#+end_src
+
+(Since I learned about the `define-syntax` by implementing the `cons-stream`, I know how to make use of the macro functionalities... Let me curry the functions!!!)
+
+For $z = 2x + 3y + 5xy$, it's hard to image there's a mountain that the line of it's ridge leans to y axis more... So I add the value of the pair in the test codes.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<pair>>
+;<<higher-order>>
+(define merge (curry merge-by identity))
+
+(define order-by-sum
+  (weighted-pairs
+   (weight-order-same-weight-pair (lambda (pair) (apply + pair)))
+   integers integers))
+(define one-and-235
+  (cons-stream 1
+               (merge (stream-map (curry * 2) one-and-235)
+                      (merge (stream-map (curry * 3) one-and-235)
+                             (stream-map (curry * 5) one-and-235)))))
+; it's good that the names can have prefixes of numbers.
+(define (2i-3j-5ij pair)
+  (let ([i (car pair)] [j (cadr pair)])
+    (+ (* 2 i) (* 3 j) (* 5 i j))))
+(define order-by-2i-3j-5ij
+  (let ([2-3-5 (stream-cdr one-and-235)])
+    (weighted-pairs (weight-order-same-weight-pair 2i-3j-5ij)
+                    2-3-5 2-3-5)))
+
+(stream-take one-and-235 10)
+
+(stream-take order-by-sum 10)
+(stream-take
+ (stream-map (lambda (pair) (cons (2i-3j-5ij pair) pair))
+             order-by-2i-3j-5ij)
+ 20)
+(stream-take
+ (stream-map
+  (lambda (pair)
+    (cons (exact->inexact ((weight-order-same-weight-pair 2i-3j-5ij) pair)) pair))
+             order-by-2i-3j-5ij)
+ 20)
+#+end_src
+
+#+RESULTS:
+: (1 2 3 4 5 6 8 9 10 12)
+: ((1 1) (1 2) (1 3) (2 2) (1 4) (2 3) (1 5) (2 4) (3 3) (1 6))
+: ((30 2 2) (43 2 3) (56 2 4) (60 3 3) (69 2 5) (78 3 4) (82 2 6) (96 3 5) (100 4 4) (108 2 8) (114 3 6) (121 2 9) (123 4 5) (134 2 10) (146 4 6) (150 3 8) (150 5 5) (160 2 12) (168 3 9) (178 5 6))
+: ((30.22 2 2) (43.23 2 3) (56.24 2 4) (60.33 3 3) (69.25 2 5) (78.34 3 4) (82.26 2 6) (96.35 3 5) (100.44 4 4) (108.28 2 8) (114.36 3 6) (121.29 2 9) (123.45 4 5) (134.21 2 10) (146.46 4 6) (150.38 3 8) (150.55 5 5) (160.2102 2 12) (168.39 3 9) (178.56 5 6))
+
+Emm... There's another way to order the same weight pairs, so that the pairs of with the same weight is ordered by the first/last number. In this implementation, just change where to pad zeros to generate the digits.
+
+*** 3.71
+
+#+NAME: 3-71
+#+begin_src racket :noweb yes :results none
+;<<stream>>
+;<<pair>>
+(define (cube x) (* x x x))
+(define (sum-cubes pair)
+  (+ (cube (car pair)) (cube (cadr pair))))
+
+(define ramanujan-number-pairs
+  (let ([s (stream-map (lambda (pair) (cons (sum-cubes pair) pair))
+                       (weighted-pairs (weight-order-same-weight-pair
+                                        sum-cubes)
+                                       integers integers))])
+    (define (combine-number-pairs p1 p2)
+      (cons (car p1) (cons (cdr p1) (cons (cdr p2) '()))))
+    (define (next before-pair ss)
+      (if (= (car before-pair) (car (stream-car ss)))
+          (cons-stream (combine-number-pairs before-pair (stream-car ss))
+                       (next (stream-car (stream-cdr ss))
+                             (stream-cdr (stream-cdr ss))))
+          (next (stream-car ss) (stream-cdr ss))))
+    (next (stream-car s) (stream-cdr s))))
+(define ramanujan-numbers
+  (stream-map car ramanujan-number-pairs))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<3-71>>
+(stream-take ramanujan-number-pairs 10)
+(stream-take ramanujan-numbers 10)
+#+end_src
+
+#+RESULTS:
+: ((1729 (1 12) (9 10)) (4104 (2 16) (9 15)) (13832 (18 20) (2 24)) (20683 (10 27) (19 24)) (32832 (18 30) (4 32)) (39312 (15 33) (2 34)) (40033 (16 33) (9 34)) (46683 (27 30) (3 36)) (64232 (17 39) (26 36)) (65728 (12 40) (31 33)))
+: (1729 4104 13832 20683 32832 39312 40033 46683 64232 65728)
+
+*** 3.72
+
+#+begin_src racket :noweb yes :results output
+;<<3-71>>
+;<<higher-order>>
+(define (stream-cadr ss) (stream-car (stream-cdr ss)))
+(define (stream-cddr ss) (stream-cdr (stream-cdr ss)))
+
+(define ramanujan-3-number-pairs
+  (let ([s (stream-map (lambda (pair) (cons (sum-cubes pair) pair))
+                       (weighted-pairs (weight-order-same-weight-pair
+                                        sum-cubes)
+                                       integers integers))])
+    (define (combine-number-pairs p1 p2 p3)
+      (cons (car p1)
+            (cons (cdr p1) (cons (cdr p2) (cons (cdr p3) '())))))
+    (define (next p-2 p-1 ss)
+      (if (= (car p-2) (car (stream-car ss)))
+          (cons-stream (combine-number-pairs p-2 p-1 (stream-car ss))
+                       (next (stream-cadr ss)
+                             (stream-car (stream-cddr ss))
+                             (stream-cdr (stream-cddr ss))))
+          (next p-1 (stream-car ss) (stream-cdr ss))))
+    (next (stream-car s) (stream-cadr s) (stream-cddr s))))
+
+(stream-take ramanujan-3-number-pairs 5) ; this line costs me 2 mins...
+#+end_src
+
+#+RESULTS:
+: ((87539319 (167 436) (228 423) (255 414)) (119824488 (11 493) (346 428) (90 492)) (143604279 (111 522) (359 460) (408 423)) (175959000 (198 552) (315 525) (70 560)) (327763000 (300 670) (339 661) (510 580)))
+
+*** exp: streams as signals
+
+#+begin_src racket :noweb-ref signals
+(define (integral integrand initial-value dt)
+  (define int
+    (cons-stream initial-value
+                 (add-streams (scale-stream integrand dt)
+                              int)))
+  int)
+#+end_src
+
+*** 3.73
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<signals>>
+(define (RC r c timestep)
+  (define (v is v0)
+    (add-streams
+     (scale-stream is r)
+     (integral (scale-stream is (/ 1 c)) v0 timestep)))
+  v)
+(define RC1 (RC 5 1 0.5))
+
+(stream-take (RC1 integers 5) 10)
+#+end_src
+
+#+RESULTS:
+: (10 15.5 21.5 28.0 35.0 42.5 50.5 59.0 68.0 77.5)
+
+*** 3.74
+
+#+NAME: 3-74
+#+begin_src racket :results none
+(define (sgn x)
+  (cond [(> x 0) 1] [(< x 0) -1] [else 0]))
+
+(define (sign-change-detector a b)
+  (if (negative? (* a b)) (sgn (- a b)) 0))
+(define (zero-crossings-from sense-data)
+  (define zero-crossings
+    (stream-map sign-change-detector sense-data (stream-cdr sense-data)))
+  zero-crossings)
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<3-74>>
+(define positive-negative (cons-stream 1 (stream-map (lambda (x) (* -1 x)) positive-negative)))
+
+(stream-take positive-negative 10)
+(stream-take (zero-crossings-from positive-negative) 10)
+;<<series>>
+(stream-take sine-series 10)
+(stream-take (zero-crossings-from sine-series) 10)
+#+end_src
+
+#+RESULTS:
+: (1 -1 1 -1 1 -1 1 -1 1 -1)
+: (1 -1 1 -1 1 -1 1 -1 1 -1)
+: (0 1 0 -1/6 0 1/120 0 -1/5040 0 1/362880)
+: (0 0 0 0 0 0 0 0 0 0)
+
+If there's a zip procedure to combine to according elements in streams, it's no need for a generailized version of `stream-map`.
+
+#+NAME: stream-zip2
+#+begin_src racket :results none
+(define (stream-zip2 f ass bss)
+  (cond [(and (stream-null? ass) (stream-null? bss)) the-empty-stream]
+        [(or (stream-null? ass) (stream-null? bss)) the-empty-stream]
+        [else
+         (cons-stream (f (stream-car ass) (stream-car bss))
+                      (stream-zip2 f (stream-cdr ass) (stream-cdr bss)))]))
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<stream-zip2>>
+(stream-take (stream-zip2 list integers integers) 10)
+#+end_src
+
+#+RESULTS:
+: ((1 1) (2 2) (3 3) (4 4) (5 5) (6 6) (7 7) (8 8) (9 9) (10 10))
+
+*** 3.75
+
+Change this:
+
+#+begin_src racket :results none
+(define (make-zero-crossings input-stream last-value)
+  (let ((avpt (/ (+ (stream-car input-stream) last-value) 2)))
+    (cons-stream (sign-change-detector avpt last-value)
+                 (make-zero-crossings (stream-cdr input-stream)
+                                      avpt))))
+#+end_src
+
+To:
+
+#+begin_src racket :noweb yes :results output
+(define (make-zero-crossings input-stream last-value last-avpt)
+  (let ((avpt (/ (+ (stream-car input-stream) last-value) 2)))
+    (cons-stream (sign-change-detector avpt last-avpt)
+                 (make-zero-crossings (stream-cdr input-stream)
+                                      (stream-car input-stream)
+                                      avpt))))
+#+end_src
+
+*** 3.76
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<stream-zip2>>
+;<<average>>
+;<<3-74>> ; import sign-change-detector
+(define (smooth ss)
+  (stream-zip2 average ss (stream-cdr ss)))
+
+(define (make-zero-crossings ss)
+  (let ([smoothed (smooth ss)])
+    (stream-map sign-change-detector smoothed (stream-cdr smoothed))))
+
+;<<series>>
+(stream-take sine-series 10)
+(stream-take (smooth sine-series) 10)
+(stream-take (make-zero-crossings sine-series) 9)
+#+end_src
+
+#+RESULTS:
+: (0 1 0 -1/6 0 1/120 0 -1/5040 0 1/362880)
+: (1/2 1/2 -1/12 -1/12 1/240 1/240 -1/10080 -1/10080 1/725760 1/725760)
+: (0 1 0 -1 0 1 0 -1 0)
+
+
 * Helper procedures
 
 #+NAME: higher-order
 #+begin_src racket :results none
-(define (id x) x)
-
 (define (always res) (lambda _args res))
-
-(define (identity . args) args)
 
 (define (compose f g)
   (lambda args (f (g args))))
@@ -2598,7 +3737,22 @@ If this question only means to image a situation that the id method will failure
                               (apply acc args))))))
   (if (<= n 0) identity
       (iter n (lambda args (list (apply func args))))))
+
+(define (curry f . args1)
+  (lambda args2 (apply f (append args1 args2))))
 #+end_src
+
+Test the higher-order functions.
+#+begin_src racket :noweb yes :results output
+;<<higher-order>>
+(define inc (curry + 1))
+(list (inc 2)
+      ((curry * 2) 7))
+#+end_src
+
+#+RESULTS:
+: (3 14)
+: (3)
 
 #+NAME: fold
 #+begin_src racket
@@ -2625,12 +3779,18 @@ If this question only means to image a situation that the id method will failure
 #+end_src
 
 #+NAME: square
-#+begin_src racket :results none
+#+begin_src racket :results none :noweb-ref sicp
 (define (square x) (* x x))
 #+end_src
 
+#+NAME: average
+#+begin_src racket :results none :noweb-ref sicp
+(define (average a b)
+  (/ (+ a b) 2))
+#+end_src
+
 #+NAME: displayln
-#+begin_src racket :results none
+#+begin_src racket :results none :noweb-ref sicp
 (define (displayln x) (display x) (newline))
 #+end_src
 
