@@ -3466,7 +3466,7 @@ The key to do this is to compress two numbers in the pair into one dimention, an
          weight))))
 #+end_src
 
-(Since I learned about the `define-syntax` by implementing the `cons-stream`, I know how to make use of the macro functionalities... Let me curry the functions!!!)
+(Since I learned about the `define-syntax` by implementing the `cons-stream`, I know how to make use of the macro functionalities... Let me try parial argument application!!!)
 
 For $z = 2x + 3y + 5xy$, it's hard to image there's a mountain that the line of it's ridge leans to y axis more... So I add the value of the pair in the test codes.
 
@@ -3474,7 +3474,7 @@ For $z = 2x + 3y + 5xy$, it's hard to image there's a mountain that the line of 
 ;<<stream>>
 ;<<pair>>
 ;<<higher-order>>
-(define merge (curry merge-by identity))
+(define merge (partial merge-by identity))
 
 (define order-by-sum
   (weighted-pairs
@@ -3482,9 +3482,9 @@ For $z = 2x + 3y + 5xy$, it's hard to image there's a mountain that the line of 
    integers integers))
 (define one-and-235
   (cons-stream 1
-               (merge (stream-map (curry * 2) one-and-235)
-                      (merge (stream-map (curry * 3) one-and-235)
-                             (stream-map (curry * 5) one-and-235)))))
+               (merge (stream-map (partial * 2) one-and-235)
+                      (merge (stream-map (partial * 3) one-and-235)
+                             (stream-map (partial * 5) one-and-235)))))
 ; it's good that the names can have prefixes of numbers.
 (define (2i-3j-5ij pair)
   (let ([i (car pair)] [j (cadr pair)])
@@ -3718,6 +3718,279 @@ To:
 : (1/2 1/2 -1/12 -1/12 1/240 1/240 -1/10080 -1/10080 1/725760 1/725760)
 : (0 1 0 -1 0 1 0 -1 0)
 
+** Book 3.5.4 Stream and Delayed Evaluation
+
+*** exp: delayed integral
+
+#+NAME: delayed-integral
+#+begin_src racket
+(define (integral delayed-integrand initial-value dt)
+  (define int
+    (cons-stream initial-value
+                 (let ([integrand (force delayed-integrand)])
+                   (add-streams (scale-stream integrand dt)
+                                int))))
+  int)
+#+end_src
+
+To solve $y' = y$ when $y(0) = 1$.
+
+Racket #lang sicp cannot execute this below...
+
+#+NAME: delayed-solve
+#+begin_src racket :results none
+(define (solve f y0 dt)
+  (define y (integral (delay dy) y0 dt))
+  (define dy (stream-map f y))
+  y)
+(stream-ref (solve (lambda (y) y) 1 0.001) 1000)
+#+end_src
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<delayed-integral>>
+;<<delayed-solve>>
+#+end_src
+
+#+RESULTS:
+: y: undefined;
+:  cannot use before initialization
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-QiZrUD.rkt:55:0: solve
+:    c:\Users\asu\AppData\Local\Temp\org-babel-QiZrUD.rkt:59:0
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-QiZrUD.rkt"
+
+But this is executable.
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<delayed-integral>>
+(define (solve f y0 dt)
+  (define y (integral (delay (stream-map f y)) y0 dt))
+  y)
+(stream-ref (solve (lambda (y) y) 1 0.001) 1000)
+#+end_src
+
+#+RESULTS:
+: 2.716923932235896
+
+**** Racket stream
+
+It seems that the delay in #lang sicp is derived from #lang racket. And there may be other reasons. I am expecting to know why in Book 4.1.6.
+
+I may use racket in next a few exercises.
+
+#+begin_src racket :lang racket :results none :noweb-ref racket-stream
+(module stream racket
+  (provide (rename-out [stream-cons cons-stream]) the-empty-stream stream-null?
+           stream-cdr stream-car
+           add-streams scale-stream
+           stream-map-expand
+           (rename-out [stream-take-list stream-take])
+           ones integers)
+  (define the-empty-stream empty-stream)
+  (define stream-null? stream-empty?)
+  (define stream-car stream-first)
+  (define (stream-cdr ss) (stream-tail ss 1))
+
+  (define (stream-take-list ss n)
+    (stream->list (stream-take ss n)))
+
+  (define (stream-map-expand f . sss)
+    (if (stream-empty? (car sss)) empty-stream
+        (stream-cons
+         (apply f (map stream-first sss))
+         (apply stream-map-expand
+                (cons f (map stream-cdr sss))))))
+
+  (define (add-streams s1 s2)
+    (stream-map-expand + s1 s2))
+  (define (scale-stream ss factor)
+    (stream-map ((curry *) factor) ss))
+
+  (define ones (stream-cons 1 ones))
+  (define integers (stream-cons 1 (add-streams integers ones)))
+  )
+
+(require 'stream)
+#+end_src
+
+#+begin_src racket :lang racket :noweb yes :results output
+;<<racket-stream>>
+;<<delayed-integral>>
+;<<delayed-solve>>
+#+end_src
+
+#+RESULTS:
+: 2.716923932235896
+
+*** 3.77
+
+#+begin_src racket :lang racket :noweb yes :results output
+;<<racket-stream>>
+(define (integral delayed-integrand initial-value dt)
+  (cons-stream initial-value
+               (let ([integrand (force delayed-integrand)])
+                 (if (stream-null? integrand)
+                     the-empty-stream
+                     (integral (stream-cdr integrand)
+                               (+ (* dt (stream-car integrand))
+                                  initial-value)
+                               dt)))))
+;<<delayed-solve>>
+#+end_src
+
+#+RESULTS:
+: 2.716923932235896
+
+*** 3.78
+
+$y'' = y'$ when $y(0) = 1, y'(0) = 1$. Result is still e $y''=e$.
+
+#+begin_src racket :lang racket :noweb yes :results output
+;<<racket-stream>>
+;<<delayed-integral>>
+(define (solve-2nd a b dt y0 dy0)
+  (define y (integral (delay dy) y0 dt))
+  (define dy (integral (delay ddy) dy0 dt))
+  (define ddy (add-streams (scale-stream dy a)
+                           (scale-stream y b)))
+  y)
+
+(stream-ref (solve-2nd 1 0 0.001 1 1) 1000)
+#+end_src
+
+#+RESULTS:
+: 2.716923932235896
+
+*** 3.79
+
+#+begin_src racket :lang racket :noweb yes :results output
+;<<racket-stream>>
+;<<delayed-integral>>
+(define (solve-2nd f dt y0 dy0)
+  (define y (integral (delay dy) y0 dt))
+  (define dy (integral (delay ddy) dy0 dt))
+  (define ddy (f dy y))
+  y)
+
+(stream-ref (solve-2nd (lambda (x y) x) 0.001 1 1) 1000)
+#+end_src
+
+#+RESULTS:
+: 2.716923932235896
+
+*** 3.80
+
+#+begin_src racket :lang racket :noweb yes :results output
+;<<racket-stream>>
+;<<delayed-integral>>
+(define (RLC R L C dt)
+  (define (circuit vC0 iL0)
+    (define vC (integral (delay dvC) vC0 dt))
+    (define iL (integral (delay diL) iL0 dt))
+    (define diL (add-streams (scale-stream vC (/ 1 L))
+                             (scale-stream iL (- (/ R L)))))
+    (define dvC (scale-stream iL (- (/ 1 C))))
+    (cons vC iL))
+  circuit)
+
+(define circuit-v-i ((RLC 1 1 0.2 0.1) 10 0))
+(define circuit-v (car circuit-v-i))
+(define circuit-i (cdr circuit-v-i))
+(stream-take circuit-i 10)
+(stream-take circuit-v 10)
+#+end_src
+
+#+RESULTS:
+: '(0 1.0 1.9 2.66 3.249 3.6461 3.84104 3.834181 3.6359559 3.2658442599999997)
+: '(10 10 9.5 8.55 7.220000000000001 5.5955 3.77245 1.8519299999999999 -0.0651605000000004 -1.8831384500000004)
+
+** Book 3.5.5 Modularity of Functional Programs and Modularity of Objects
+
+*** 3.81
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<higher-order>>
+;<<square>>
+(define (make-prng seed)
+  (define (rand requests)
+    (define (next now) ; choose a simple algorithm to generate random number
+      (modulo (+ (* 1664525 now) 1013904223) ((compose square square) 256))) ; 2^32
+    (define (handle now req)
+      (cond [(eq? req 'generate) (next now)]
+            [(and (list? req) (not (null? req))
+                  (eq? (car req) 'reset)) (cadr req)]
+            [else (error "Unknown operation -- MAKE-PRNG")]))
+    (define ss
+      (cons-stream seed (stream-map handle ss requests)))
+    ss)
+  rand)
+
+(define prng (make-prng 7))
+;<<series>>
+(define requests
+  (cons-stream 'generate
+               (stream-map (lambda (x) (if (zero? x) 'generate
+                                           (list 'reset 65535)))
+                           sine-series)))
+(stream-take requests 10)
+(stream-take (prng requests) 10)
+#+end_src
+
+#+RESULTS:
+: (generate generate (reset 65535) generate (reset 65535) generate (reset 65535) generate (reset 65535) generate)
+: (7 1025555898 3923423697 65535 2724367698 65535 2724367698 65535 2724367698 65535)
+
+*** 3.82
+
+#+begin_src racket :noweb yes :results output
+;<<stream>>
+;<<square>>
+;<<higher-order>>
+(define (monte-carlo experiment)
+  (define success-times
+    (partial-sums (stream-map (lambda _ (if (experiment) 1 0)) ones)))
+  (stream-map / success-times integers))
+
+(define (random-f int . precisions)
+  (define default-precision 1000000)
+  (define (random-by-precision precision)
+    (* int (/ (random precision) precision)))
+  (if (null? precisions)
+      (random-by-precision default-precision)
+      (map random-by-precision precisions)))
+
+(define (random-in-range low high)
+  (let ([range (- high low)])
+    (+ low (random-f range))))
+
+(define (estimate-integral p x1 x2 y1 y2)
+  (define (random-point x1 x2 y1 y2)
+    (cond [(> x1 x2) (random-point x2 x1 y1 y2)]
+          [(> y1 y2) (random-point x1 x2 y2 y1)]
+          [else (list (random-in-range x1 x2)
+                      (random-in-range y1 y2))]))
+  (define (experiment)
+    (apply p (random-point x1 x2 y1 y2)))
+  (monte-carlo experiment))
+
+(define (estimate-pi)
+  (define (p x y)
+    (<= (+ (square (- x 5)) (square (- y 7)))
+        (square 3)))
+  ; (πr^2) / (2r * 2r) = π / 4
+  (let ([quarter-of-pi (estimate-integral p 2 8 4 10)])
+    (stream-map (compose exact->inexact (partial * 4)) quarter-of-pi)))
+
+(stream-take (estimate-pi) 20)
+(stream-ref (estimate-pi) 10000)
+#+end_src
+
+#+RESULTS:
+: (4.0 4.0 4.0 3.0 3.2 3.3333333333333335 3.4285714285714284 3.0 3.111111111111111 3.2 3.272727272727273 3.3333333333333335 3.3846153846153846 3.4285714285714284 3.466666666666667 3.5 3.5294117647058822 3.5555555555555554 3.5789473684210527 3.4)
+: 3.136086391360864
 
 * Helper procedures
 
@@ -3726,7 +3999,7 @@ To:
 (define (always res) (lambda _args res))
 
 (define (compose f g)
-  (lambda args (f (g args))))
+  (lambda (x) (f (g x))))
 
 (define (repeat n func)
   (define (iter n acc)
@@ -3738,21 +4011,24 @@ To:
   (if (<= n 0) identity
       (iter n (lambda args (list (apply func args))))))
 
-(define (curry f . args1)
+(define (partial f . args1)
   (lambda args2 (apply f (append args1 args2))))
 #+end_src
 
 Test the higher-order functions.
 #+begin_src racket :noweb yes :results output
 ;<<higher-order>>
-(define inc (curry + 1))
+(define inc (partial + 1))
 (list (inc 2)
-      ((curry * 2) 7))
+      ((partial * 2) 7))
+
+;<<square>>
+((compose square square) 3)
 #+end_src
 
 #+RESULTS:
 : (3 14)
-: (3)
+: 81
 
 #+NAME: fold
 #+begin_src racket
