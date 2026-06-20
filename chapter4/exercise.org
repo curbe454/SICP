@@ -1,0 +1,1141 @@
+#+title: Exercise
+#+property: header-args:racket :lang sicp :results output :noweb yes
+
+Chapter 4: Metalinguistic Abstraction
+
+* 4.1 The Metacircular Evaluator
+
+** 4.1.1 The Core of the Evaluator
+
+*** exp
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (eval expr env)
+  (cond
+    [(self-evaluating? expr) expr]
+    [(variable? expr) (lookup-variable-value expr env)]
+    [(quoted? expr) (text-of-quotation expr)]
+    [(assignment? expr) (eval-assignment expr env)]
+    [(definition? expr) (eval-definition expr env)]
+    [(lambda? expr)
+     (make-procedure (lambda-parameters expr)
+                     (lambda-body expr)
+                     env)]
+    [(begin? expr)
+     (eval-sequence (begin-actions expr) env)]
+    [(if? expr) (eval-if expr env)]
+    [(cond? expr) (eval (cond->if expr) env)]
+    [(and? expr) (eval-and expr env)] ; and & or: Exercise 4.4
+    [(or? expr) (eval-or expr env)]
+    [(let? expr) (eval (let->combination expr) env)] ; let: Exercise 4.6
+    [(let*? expr) (eval (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+    [(application? expr)
+     (apply (eval (operator expr) env)
+            (list-of-values (operands expr) env))]
+    [else (error "Unknown expression type -- EVAL" expr)]))
+
+(define (apply procedure arguments)
+  (cond
+    [(primitive-procedure? procedure)
+     (apply-primitive-procedure procedure)]
+    [(compound-procedure? procedure)
+     (eval-sequence
+      (procedure-body procedure)
+      (extend-environment
+       (procedure-parameters procedure)
+       arguments
+       (procedure-environment procedure)))]
+    [else (error "Unknown procedure type -- APPLY" (list procedure arguments))]))
+
+(define (list-of-values exprs env)
+  (if (no-operands? exprs)
+      '()
+      (cons (eval (first-operand exprs) env)
+            (list-of-values (rest-operands exprs) env))))
+
+(define (eval-if expr env)
+  (if (true? (eval (if-predicate expr) env))
+      (eval (if-consequent expr) env)
+      (eval (if-alternative expr) env)))
+
+(define (eval-sequence exprs env)
+  (cond [(last-expr? exprs) (eval (first-expr exprs) env)]
+        [else (eval (first-expr exprs) env)
+              (eval-sequence (rest-exprs exprs) env)]))
+
+(define (eval-assignment expr env)
+  (set-variable-value! (assignment-variable expr)
+                 (eval (assignment-value expr) env)
+                 env)
+  'ok)
+
+(define (eval-definition expr env)
+  (define-variable! (definition-variable expr)
+                    (eval (definition-value expr) env)
+                    env)
+  'ok)
+#+end_src
+
+*** 4.1
+
+Comparing to the example of `list-of-values`, this version of `list-of-values` evals from left to right(first to end):
+
+#+begin_src racket
+(define (list-of-values exprs env)
+  (if (no-operands? exprs)
+      '()
+      (let ([first-value (eval (first-operand exprs) env)])
+        (cons first-value
+              (list-of-values (rest-exprs exprs) env)))))
+#+end_src
+
+And this version evals from right to left:
+
+#+begin_src racket
+(define (list-of-values exprs env)
+  (if (no-operands? exprs)
+      '()
+      (let ([rest-values (list-of-values (rest-exprs exprs) env)])
+        (cons (eval (first-operand exprs) env)
+              rest-values))))
+#+end_src
+
+*** exp
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (self-evaluating? expr)
+  (cond [(number? expr) true]
+        [(string? expr) true]
+        [else false]))
+
+(define (variable? expr) (symbol? expr))
+
+;; quote
+(define (quoted? expr)
+  (tagged-list? expr 'quote))
+(define (text-of-quotation expr) (cadr expr))
+
+(define (tagged-list? expr tag)
+  (if (pair? expr)
+      (eq? (car expr) tag)
+      false))
+
+;; assignment
+(define (assignment? expr)
+  (tagged-list? expr 'set!))
+(define (assignment-variable expr) (cadr expr))
+(define (assignment-value expr) (caddr expr))
+
+;; definition
+(define (definition? expr)
+  (tagged-list? expr 'define))
+(define (definition-variable expr)
+  (if (symbol? (cadr expr))
+      (cadr expr)           ; (define <var> <value>)
+      (caadr expr)))        ; (define (function_name arg...) <value>)
+(define (definition-value expr)
+  (if (symbol? (cadr expr))
+      (caddr expr)
+      (make-lambda (cdadr expr)
+                   (cddr expr))))
+; lambda
+(define (make-lambda parameters body)
+  (cons 'lambda (cons parameters body)))
+(define (lambda? expr) (tagged-list? expr 'lambda))
+(define lambda-parameters cadr)
+(define lambda-body cddr)
+
+;; if
+(define (make-if predicate consequent alternative)
+  (list 'if predicate consequent alternative))
+(define (if? expr) (tagged-list? expr 'if))
+(define if-predicate cadr)
+(define if-consequent caddr)
+(define (if-alternative expr)
+  (if (not (null? (cdddr expr)))
+      (cadddr expr)
+      false))
+
+;; begin
+(define (begin? expr) (tagged-list? expr 'begin))
+(define (begin-actions expr) (cdr expr))
+(define (last-expr? seq) (null? (cdr seq)))
+(define first-expr car)
+(define rest-exprs cdr)
+
+(define (sequence->expr seq)
+  (cond [(null? seq) seq]
+        [(last-expr? seq) (first-expr seq)]
+        [else (make-begin seq)]))
+(define (make-begin seq) (cons 'begin seq))
+
+;; apply
+(define (application? expr) (pair? expr))
+(define operator car)
+(define operands cdr)
+(define (no-operands? ops) (null? ops))
+(define first-operand car)
+(define rest-operands cdr)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-core-exp :results none
+(define (cond? expr) (tagged-list? expr 'cond))
+(define cond-clauses cdr)
+(define (cond-predicate clause) (car clause))
+(define (cond-actions clause) (cdr clause))
+(define (cond-else-clause? clause) (eq? (cond-predicate clause) 'else))
+
+(define (cond->if expr)
+  (expand-clauses (cond-clauses expr)))
+
+(define (expand-clauses clauses)
+  (if (null? clauses)
+      false              ; clause else
+      (let ([first (car clauses)] [rest (cdr clauses)])
+        (if (cond-else-clause? first)
+            (if (null? rest)
+                (sequence->expr (cond-actions first))
+                (error "ELSE clause is not last -- COND->IF" clauses))
+            (make-if (cond-predicate first)
+                     (sequence->expr (cond-actions first))
+                     (expand-clauses rest))))))
+#+end_src
+
+** 4.1.2 Representing Expressions
+
+*** 4.2
+
+a) The `application?` clause in `cond` clauses in `eval` should be a last clause before `else` clause. This is because the `application?` is implemented by a simple `pair?` and recognise almost all expression as application other than the `if`s, `define`s and so on.
+b) Known the reason, I know how to improve, adding a tag to the application expression:
+
+   #+begin_src racket
+(define (application? expr) (tagged-list? expr 'call))
+(define operator cadr)
+(define operands cddr)
+   #+end_src
+
+*** 4.3 data directed eval
+
+#+begin_src BNF
+<expr> ::= <value> | <statement>
+
+<value> ::= <literal> | <variable>
+<literal> ::= <number> | <string>
+<variable> ::= <literal> | <procedure>
+<procedure> ::= <parameters><body>
+<body> ::= <expr>
+
+<statement> ::= <quoted> | <lambda> | <definition> | <assignment> | <if> | <cond> | <begin> | <apply>
+<quoted> ::= "(" <quote-identifier><expr> ")"
+<lambda> ::= "(" <lambda-identifier><procedure> ")"
+...
+#+end_src
+
+|--------------------+---------+-----+-------+--------+-------+---------+-------+-------|
+| Op\Expr            | literal | var | quote | assign | λ/def | if/cond | apply | begin |
+| eval               | yes     | yes | yes   | yes    | yes   | yes     | yes   | yes   |
+| self type identify | yes     | yes | yes   | yes    | yes   | yes     | yes   | yes   |
+| ...                |         |     |       |        |       |         |       |       |
+|--------------------+---------+-----+-------+--------+-------+---------+-------+-------|
+
+#+begin_src racket :results none
+(define (tag? x) (symbol? x))
+(define (tagged-list-tag lst)
+  (car lst))
+
+(define (literal-pkg)
+  (define (literal? x)
+    (cond [(number? x) true]
+          [(string? x) true]
+          [else false]))
+  (define (eval x env) x)
+
+  (put 'literal? '(expr) literal?)
+  (put 'eval '(literal env) eval)
+  'done)
+
+(define (variable-pkg)
+  (define variable? symbol?)
+  (define (eval x env)
+    (lookup-variable-value x env))
+
+  (put 'variable? '(expr) variable?)
+  (put 'eval '(variable env) eval)
+  'done)
+
+(define (quote-pkg)
+  (define (quoted? x) (tagged-list? x 'quote))
+  (define (eval x env)
+    (text-of-quotation x))
+  (define (text-of-quotation x)
+    (cadr x))
+
+  (put 'quoted? '(expr) quoted?)
+  (put 'eval '(quote env) eval)
+  'done)
+
+(define (assignment-pkg)
+  (define (assignment? x) (tagged-list? x 'set!))
+  (define (eval-assignment x env)
+    (define-variable! (definition-variable expr)
+      (eval (assignment-value expr) env)
+      env))
+  (define assignment-variable cadr)
+  (define assigment-value caddr)
+
+  (put 'assignment? '(expr) assignment?)
+  (put 'eval '(assignment env) eval-assignment)
+  'done)
+
+(define (lambda-definition-pkg)
+  (define (lambda? x) (tagged-list? x 'lambda))
+  (define (definition? x) (tagged-list? x 'define))
+
+  (define (make-lambda parameters body)
+    (cons 'lambda (cons parameters body)))
+  (define lambda-parameters cadr)
+  (define lambda-body cddr)
+
+  (define (difinition-varible expr)
+    (if (symbol? (cadr expr))
+        (cadr expr)
+        (caadr expr)))
+  (define (difinition-value expr)
+    (if (symbol? (cadr expr))
+        (caddr expr)
+        (make-lambda (cdadr expr)
+                     (cddr expr))))
+
+  (define (eval-lambda expr env)
+    (make-procedure (lambda-parameters expr)
+                    (lambda-body expr)
+                    env))
+  (define (eval-definition expr env)
+    (define-variable! (definition-variable expr)
+      (eval (definition-value expr) env)
+      env))
+
+  (put 'lambda? '(expr) lambda?)
+  (put 'definition? '(expr) definition?)
+  (put 'eval '(lambda env) eval-lambda)
+  (put 'eval '(definition env) eval-definition)
+  'done)
+
+(define (if-cond-pkg)
+  (define (if? expr) (tagged-list? expr 'if))
+  (define (make-if predicate consequent alternative)
+    (list 'if predicate consequent alternative))
+  (define if-predicate cadr)
+  (define if-consequent caddr)
+  (define (if-alternative expr)
+    (if (null? (cdddr expr)) false
+        (cadddr expr)))
+
+  (define (eval-if expr env)
+    (if (true? (if-predicate expr))
+        (eval (if-consequent expr) env)
+        (eval (if-alternative expr) env)))
+
+  (define (cond? expr) (tagged-list? expr 'cond))
+  (define cond-clauses cdr)
+  (define (cond-predicate clause) (car clause))
+  (define (cond-actions clause) (cdr clause))
+  (define (cond-else-clause? clause) (eq? (cond-predicate clause) 'else))
+  (define (cond->if expr)
+    (expand-clauses (cond-clauses expr)))
+  (define (expand-clauses clauses)
+    (if (null? clauses)
+        false
+        (let ([first (car clauses)] [rest (cdr clauses)])
+          (if (cond-else-clause? first)
+              (if (null? rest)
+                  (sequence->expr (cond-actions first))
+                  (error "ELSE clause is not last -- COND->IF"))
+              (make-if (cond-predicate first)
+                       (sequence->expr (cond-actions first))
+                       (expand-clauses rest))))))
+
+  (define (eval-cond expr env)
+    (eval (cond->if expr env)))
+
+  (put 'if? '(expr) if?)
+  (put 'cond? '(expr) cond?)
+  (put 'eval '(if env) eval-if)
+  (put 'eval '(cond env) eval-cond)
+  'done)
+
+(define (apply-pkg)
+  (define (application? expr) (pair? expr))
+  (define operator car)
+  (define operands cdr)
+  (define (no-operands? ops) (null? ops))
+  (define first-operand car)
+  (define rest-operands cdr)
+  (define (list-of-values exprs env)
+    (if (no-operands? exprs)
+        '()
+        (cons (eval (first-operand exprs) env)
+              (list-of-values (rest-operands exprs) env))))
+
+  (define (eval-application expr env)
+    (apply (eval (operator expr) env)
+           (list-of-values (operands expr) env)))
+
+  (put 'application? '(expr) application?)
+  (put 'eval '(application env) eval-application)
+  'done)
+
+(define (begin-pkg)
+  (define (make-begin seq) (cons 'begin seq))
+  (define (begin? expr) (tagged-list? expr 'begin))
+  (define (begin-actions expr) (cdr expr))
+  (define (eval-begin expr env)
+    (eval-sequence (begin-actions expr) env))
+
+  (define (last-expr? seq) (null? (cdr seq)))
+  (define first-expr car)
+  (define rest-exprs cdr)
+  (define (sequence->expr seq)
+    (cond [(null? seq) seq]
+          [(last-expr? seq) (first-expr seq)]
+          [else (make-begin seq)]))
+  (define (eval-sequence exprs env)
+    (cond [(last-expr? exprs) (eval (first-expr exprs) env)]
+          [else (eval (first-expr exprs) env)
+                (eval-sequence (rest-exprs exprs) env)]))
+
+  (put 'begin? '(expr) begin?)
+  (put 'sequence->expr '(sequence) sequence->expr)
+  (put 'eval '(begin env) eval-begin)
+  (put 'eval '(sequence env) eval-sequence)
+  'done)
+
+(define (sequence->expr seq) (get 'sequence->expr '(sequence)))
+
+(define (lookup-variable-value var env)
+  ??)
+
+(define literal? (get 'literal? '(expr)))
+(define variable? (get 'variable?) '(expr))
+(define (type-of-value value)
+  (cond [(literal? value) 'literal]
+        [(variable? value) 'variable]
+        [else false]))
+(define (type-of-expr expr)
+  (let ([value-type (type-of-value expr)])
+    (if (value-type) value-type
+        (let ([expr-tag (tagged-list-tag expr)])
+          (if (tag? expr-tag) expr-tag
+              'application)))))
+(define (eval expr env)
+  ((get 'eval (list (type-of-expr expr) 'env)) expr env))
+#+end_src
+
+It seems I did too much.
+
+The implementation of `eval` is quite alike to the `deriv` in Exercise 2.73.
+
+*** 4.4 and & or
+
+#+begin_src BNF
+<sequence> ::= "(" <sequence-exprs> ")"
+<sequence-exprs> ::= <expr> | <expr> <sequence-exprs>
+
+<and> ::= "(" <and-identifier> <sequence> ")"
+<or> ::= "(" <or-identifier> <sequence> ")"
+#+end_src
+
+Wait, until now the Book haven't told me any implementation or interface of the booleans...
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (and? expr) (tagged-list? expr 'and))
+(define (eval-and expr env)
+  (define (iter seq)
+    (let ([curr (eval (first-expr seq) env)])
+      (if (not curr) false
+          (if (last-expr? seq)
+              curr
+              (iter (rest-exprs seq))))))
+  (if (null? (cdr expr)) true
+      (iter (cdr expr))))
+
+(define (or? expr) (tagged-list? expr 'or))
+(define (eval-or expr env)
+  (define (iter seq)
+    (let ([curr (eval (first-expr seq) env)])
+      (if curr true
+          (if (last-expr? seq)
+              curr
+              (iter (rest-exprs seq))))))
+  (if (null? (cdr expr)) false
+      (iter (cdr expr))))
+#+end_src
+
+It seems that the book didn't define the `derived expression` clearly. I guess it means the syntax function which don't call the `eval` directly.
+
+Derived expression version:
+
+#+begin_src racket :results none
+; implementation of `and?` and `or`
+(define (and->if expr)
+  (define (iter seq)
+    (cond [(null? seq) true]
+          [(last-expr? seq)
+           (make-if (first-expr seq)
+                    (first-expr seq)
+                    false)]
+          [else (make-if (first-expr seq)
+                         (iter (rest-exprs seq))
+                         false)]))
+  (iter (cdr expr)))
+
+(define (or->if expr)
+  (define (iter seq)
+    (cond [(null? seq) false]
+          [(last-expr? seq)
+           (make-if (first-expr seq)
+                    true
+                    false)]
+          [else (make-if (first-expr seq)
+                         true
+                         (iter (rest-exprs seq)))]))
+  (iter (cdr expr)))
+#+end_src
+
+*** 4.5
+
+I can only change the expand-clauses to implement the `(<test> => <recipient>)` grammar. Before this, let me have a try.
+
+#+begin_src racket :lang racket
+(define (3n+1-problem n)
+  (define (odd-id? x) (and (odd? x) x))
+  (define (even-id? x) (and (even? x) x))
+  (cond [(odd-id? n) => (lambda (x) (+ (* 3 x) 1))]
+        [(even-id? n) => (lambda (x) (/ x 2))]))
+
+; below uses racket standard library functions
+(define (3n+1-stream n)
+  (define ss (stream-cons n (stream-map 3n+1-problem ss)))
+  ss)
+
+(stream->list (stream-take (3n+1-stream 7) 20))
+(stream->list (stream-take (3n+1-stream 27) 112))
+#+end_src
+
+#+RESULTS:
+: '(7 22 11 34 17 52 26 13 40 20 10 5 16 8 4 2 1 4 2 1)
+: '(27 82 41 124 62 31 94 47 142 71 214 107 322 161 484 242 121 364 182 91 274 137 412 206 103 310 155 466 233 700 350 175 526 263 790 395 1186 593 1780 890 445 1336 668 334 167 502 251 754 377 1132 566 283 850 425 1276 638 319 958 479 1438 719 2158 1079 3238 1619 4858 2429 7288 3644 1822 911 2734 1367 4102 2051 6154 3077 9232 4616 2308 1154 577 1732 866 433 1300 650 325 976 488 244 122 61 184 92 46 23 70 35 106 53 160 80 40 20 10 5 16 8 4 2 1)
+
+#+begin_src racket :results none
+(define (cond-arrow-clause? clause)
+  (eq? (cadr clause) '=>))
+(define (cond-arrow-recipient clause) (cddr clause))
+
+(define (make-application proc exprs)
+  (cons proc exprs))
+
+(define (expand-clauses clauses)
+  (if (null? clauses)
+      false              ; clause else
+      (let ([first (car clauses)] [rest (cdr clauses)])
+        (if (cond-else-clause? first)
+            (if (null? rest)
+                (sequence->expr (cond-actions first))
+                (error "ELSE clause is not last -- COND->IF" clauses))
+            (if (cond-arrow-clause? first)
+                (make-if (cond-predicate first)
+                         (make-application (cond-arrow-recipient first) (cond-predicate first))
+                         (expand-clauses rest))
+                (make-if (cond-predicate first)
+                         (sequence->expr (cond-actions first))
+                         (expand-clauses rest)))))))
+#+end_src
+
+*** 4.6
+
+#+begin_src BNF
+<let> ::= "(" <let-identifier> "(" <bindings> ")" <body> ")"
+<let-identifier> ::= 'let
+<bindings> :: = <binding> | <bindings>
+<binding> :: = "(" <variable> <expr> ")"
+#+end_src
+
+The binding itself is also an `expr`.
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (make-application proc exprs)
+  (cons proc exprs))
+
+(define (make-let bindings body)
+  (list 'let bindings body))
+(define (let? expr) (tagged-list? expr 'let))
+(define let-bindings cadr)
+(define let-body caddr)
+(define (binding? expr) (and (pair? expr) (pair? (cdr expr)) (null? (cddr expr))
+                             (variable? (car expr))))
+(define bindings-first car)
+(define bindings-rest cdr)
+(define binding-variable car)
+(define binding-value cadr)
+
+(define (let->combination expr)
+  (define (iter bindings variables exprs)
+    (if (null? bindings) (cons variables exprs)
+        (let ([first (bindings-first bindings)]
+              [rest (bindings-rest bindings)])
+          (if (binding? first)
+              (iter rest
+                    (cons (binding-variable first) variables) ; note that it reverse the order
+                    (cons (binding-value first) exprs))
+              (error "Binding form illegal -- LET" first)))))
+
+  (let ([parameters-expressions (iter (let-bindings expr) '() '())])
+    (make-application (make-lambda (car parameters-expressions)
+                                   (let-body expr))
+                      (cdr parameters-expressions))))
+#+end_src
+
+*** 4.7
+
+A natural way to implement the `let*` is to use nested environments for orders of bindings.
+
+As for implementing it as derived expression... Let me try to implement one to make it clear.
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (let*? expr) (tagged-list? expr 'let*))
+(define (let*->nested-lets expr)
+  (let ([bindings (let-bindings expr)])
+    (if (or (null? bindings) (last-expr? bindings))
+        expr
+        (make-let (bindings-first bindings)
+                  (let*->nested-lets (make-let (bindings-rest bindings)
+                                               (let-body expr)))))))
+#+end_src
+
+Well, the evaluation of `let*` exactly updates the environment dynamically, since `let*` evals to nested `let`s then to nested `lambda`s. So I do not need to do more.
+
+*** 4.8
+
+It seems that the `(let <variable> <bindings> <body>)` can be transform to `(define (<variable> vars-in-bindings) <body>))  (let <bindings> (<variable> <vars-in-bindings>))`. Let me compare two versions of a implementation:
+
+#+begin_src racket :results none
+(define (fib n)
+  (let fib-iter ((a 1)
+                 (b 0)
+                 (count n))
+    (if (= count 0)
+        b
+        (fib-iter (+ a b) a (- count 1)))))
+
+(define (fib n)
+  (define (fib-iter a b count)
+    (if (= count 0)
+        b
+        (fib-iter (+ a b) a (- count 1))))
+  (let ((a 1)
+        (b 0)
+        (count n))
+    (fib-iter a b count)))
+#+end_src
+
+#+begin_src BNF
+<named-let> ::= "(" <let-identifier> <variable> <bindings> <body> ")"
+#+end_src
+
+Only list the changed procedures.
+
+#+begin_src racket
+(define (let-with-name? expr) (and (let? expr) (not (null? (cdddr expr)))))
+(define let-with-name-name cadr)
+(define let-with-name-bindings caddr)
+(define let-with-name-body cadddr)
+
+(define (make-function-definition name parameters body)
+  (list (cons name parameters) body))
+
+(define (let->combination expr)
+  (define (iter bindings variables exprs)
+    (if (null? bindings) (cons variables exprs)
+        (let ([first (bindings-first bindings)]
+              [rest (bindings-rest bindings)])
+          (if (binding? first)
+              (iter rest
+                    (cons (binding-variable first) variables) ; note that it reverse the order
+                    (cons (binding-value first) exprs))
+              (error "Binding form illegal -- LET" first)))))
+
+  (if (let-with-name? expr)
+      (let ([name (let-with-name-name expr)]
+            [parameters-expressions (iter (let-with-name-bindings expr) '() '())])
+        (make-begin
+         (make-function-definition name
+                                   (car parameters-expressions))
+         (make-let (let-with-name-bindings expr)
+                   (make-application name
+                                     (car parameters-expressions)))))
+      (let ([parameters-expressions (iter (let-bindings expr) '() '())])
+        (make-application (make-lambda (car parameters-expressions)
+                                       (let-body expr))
+                          (cdr parameters-expressions)))))
+#+end_src
+
+*** 4.9
+
+#+begin_src racket :results none
+(for <bindings> <pred> <after-body-bindings> <body>) ->
+(let <bindings>
+  (define (iter (binding-variable <bindings>) last-res)
+    (<if> <pred>
+          (let ([res <body>])
+            (iter (binding-value <after-body-bindings>) res))
+          last-res))
+  (iter (binding-variable <bindings>) nil))
+
+(for ([i 0]) (= i 10) ([i (inc i)])
+     (display i))
+#+end_src
+
+It's more like a fold procedure...
+
+#+begin_src racket
+(define (for? expr) (tagged-list? expr 'for))
+(define for-init-bindings car)
+(define for-pred cadr)
+(define for-after-bindings caddr)
+(define for-body cadddr)
+(define (for->derived expr)
+  (let ([variables (binding-variable (for-init-bindings expr))]))
+  (make-let (for-init-bindings expr)
+            (make-begin
+             (list
+              (make-function-definition 'iter (append variables (list 'last-res))
+                                        (make-if (for-pred expr)
+                                                 (make-let (list [list 'res (for-body expr)])
+                                                           (make-application 'iter (append variables (list 'res))))
+                                                 'last-res)))
+             (make-application (append variables '())))))
+#+end_src
+
+*** 4.10
+
+Change the application to make operator to the last place in the expr list.
+
+#+begin_src racket
+(define (application? expr) (pair? expr))
+(define operator tail)
+(define operands heads)
+(define (no-operands? ops) (null? ops))
+(define first-operand car)
+(define rest-operands cdr)
+;<<heads-tail>>
+#+end_src
+
+#+NAME: heads-tail
+#+begin_src racket
+(define (tail lst)
+  (cond [(null? lst) lst]
+        [(null? (cdr lst)) (car lst)]
+        [else (tail (cdr lst))]))
+(define (heads lst)
+  (cond [(null? lst) lst]
+        [(null? (cdr lst)) '()]
+        [else (cons (car lst) (heads (cdr lst)))]))
+#+end_src
+
+#+begin_src racket
+;<<heads-tail>>
+(tail (list 1 2 3))
+(heads (list 1 2 3))
+#+end_src
+
+#+RESULTS:
+: 3
+: (1 2)
+
+** 4.1.3 Evaluator Data Structures
+
+*** exp
+
+Predicate:
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (true? x)
+  (not (eq? x) false))
+(define (false? x)
+  (eq? x false))
+#+end_src
+
+#+NAME: fix-eval-core-exp-4-1-3
+#+begin_src racket
+(define (apply-primitive-procedure proc args) ??)
+(define (primitive-procedure? proc) ??)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (make-procedure parameters body env)
+  (list 'procedure parameters body env))
+
+(define (compound-procedure? p)
+  (tagged-list? p 'procedure))
+(define procedure-parameters cadr)
+(define procedure-body caddr)
+(define procedure-environment cadddr)
+#+end_src
+
+#+begin_src racket
+(define the-empty-environment '())
+(define (enclosing-environment envs) (cdr envs))
+(define (first-frame envs) (car envs))
+
+(define (make-frame variables values)
+  (cons variables values))
+(define frame-variables car)
+(define frame-values cdr)
+(define (add-binding-to-frame! var val frame)
+  (set-car! (cons var (frame-variables frame))
+            (cons val (frame-values frame))))
+
+(define (extend-environment vars vals base-env)
+  (if (= (length vars) (length vals))
+      (cons (make-frame vars vals) base-env)
+      (if (< (length vars) (length vals))
+          (error "Too many arguments supplied -- EXTEND-ENVIRONMENT" vars vals)
+          (error "Too few arguments supplied -- EXTEND-ENVIRONMENT" vars vals))))
+
+(define (lookup-variable-value var env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond [(null? vars)
+             (env-loop (enclosing-environment env))]
+            [(eq? var (car vars)) (car vals)]
+            [else scan (cdr vars) (cdr vals)]))
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable" var)
+        (let ([frame (first-frame env)])
+          (scan (frame-variables frame)
+                (frame-values frame)))))
+  (env-loop env))
+
+(define (set-variable-value! var val env)
+  (define (env-loop env)
+    (define (scan vars vals)
+      (cond [(null? vars)
+             (env-loop  (enclosing-environment env))]
+            [(eq? var (car vars))
+             (set-car! vals val)]
+            [else scan (cdr vars) (cdr vals)]))
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable -- SET!" var)
+        (let ([frame (first-frame env)])
+          (scan (frame-variables frame)
+                (frame-values frame)))))
+  (env-loop env))
+
+(define (define-variable! var val env)
+  (let ([frame (first-frame env)])
+    (define (scan vars vals)
+      (cond [(null? vars)
+             (add-binding-to-frame! var val frame)]
+            [(eq? var (car vars))
+             (set-car! vals val)]
+            [else (scan (cdr vars vals))]))
+    (scan (frame-variables frame)
+          (frame-values frame))))
+#+end_src
+
+I wonder why the frame entries is not implemented as an association list. That way the `let` bindings would have the same form with a frame, which makes a simpler system...
+
+So it's at Exercise 4.11!
+
+*** 4.11
+
+Scheme have a helpful builtin procedure `assv` to find record in an association list.
+
+#+begin_src racket
+(assv 3 '((1 1) (2 2) (3 3) (4 4)))
+(assv 'b '((a 1) (b 2) (c 3) (d 4)))
+#+end_src
+
+#+RESULTS:
+: (3 3)
+: (b 2)
+
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define the-empty-environment '())
+(define (enclosing-environment envs) (cdr envs))
+(define (first-frame envs) (car envs))
+
+(define (zip2 xs ys)
+  (map list xs ys))
+
+(define (make-frame-by-bindings bindings) bindings) ; a frame is bindings
+(define (make-frame vars vals) (zip2 vars vals))
+(define (make-binding var val) (list var val))
+;; (define binding-variable car) ; they are defined above
+;; (define binding-value cadr)
+(define (bind-new-value! binding val)
+  (set-cdr! binding (list val)))
+(define (add-binding-to-frame! var val frame)
+  (set-car! frame (make-binding var val)))
+
+;; this procedure is the same with example in book
+(define (extend-environment vars vals base-env)
+  (if (= (length vars) (length vals))
+      (cons (make-frame vars vals) base-env)
+      (if (< (length vars) (length vals))
+          (error "Too many arguments supplied -- EXTEND-ENVIRONMENT" vars vals)
+          (error "Too few arguments supplied -- EXTEND-ENVIRONMENT" vars vals))))
+
+(define (lookup-variable-value var env)
+  (define (env-loop env)
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable" var)
+        (let ([record (assv (first-frame env))])
+          (if record
+              (binding-value record)
+              (env-loop (enclosing-environment env))))))
+  (env-loop env))
+(define (set-variable-value! var val env)
+  (define (env-loop env)
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable -- SET!" var)
+        (let ([record (assv (first-frame env))])
+          (if record
+              (bind-new-value! record val)
+              (env-loop (enclosing-environment env))))))
+  (env-loop env))
+(define (define-variable! var val env)
+  (let* ([frame (first-frame env)]
+         [record (assv var frame)])
+    (if record
+        (bind-new-value! record val)
+        (add-binding-to-frame! var val env))))
+#+end_src
+
+*** 4.12
+
+As for `define-variable!` in Exercise 4.11, it's precise enough. For the `scan` in the example, the `assv` abstracted it. The rest is the `env-loop`.
+
+#+begin_src racket
+(define (search-to-do-with-the-binding env var f)
+  (if (eq? env the-empty-environment)
+      (error "Unbound variable" var)
+      (let ([record (assv (first-frame env))])
+        (if record
+            (f record)
+            (search-to-do-with-the-binding (enclosing-environment env) var f)))))
+
+(define (lookup-variable-value var env)
+  (search-to-do-with-the-binding
+   env var binding-value))
+
+(define (set-variable-value! var val env)
+  (search-to-do-with-the-binding
+   env var (lambda (binding) (begin (bind-new-value! binding val)
+                                    binding))))
+#+end_src
+
+*** 4.13
+
+I think it is better not to delete all the all bindings of the same named variables in different frames. Take below python code as example:
+
+#+begin_src python :results output
+lst = [1,2,3]
+
+def reversed_list(lst):
+    res = list(reversed(lst))
+    del lst
+    return res
+
+print(reversed_list(lst), lst)
+#+end_src
+
+#+RESULTS:
+: [3, 2, 1] [1, 2, 3]
+
+If the `del lst` also unbound the `lst` in the enclosing environment, the `print` call would raise an error.
+
+I do not allow to unbound variables in enclosing environment, that may introduce dangling-pointer problem. I think it's reasonable for a strong dynamic typed language - scheme.
+
+#+begin_src racket
+(assv 2 '((1 1) ((2 2))))
+
+(define x '(a b))
+(begin (set-car! x (cadr x))
+       (set-cdr! x '())
+       x)
+
+(define y '((2 2)))
+(begin (set-car! y (cadr y))
+       (set-cdr! y '())
+       y)
+#+end_src
+
+#+RESULTS:
+: mcar: contract violation
+:   expected: mpair?
+:   given: ()
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-lPETWE\org-babel-rjQw1z.rkt"
+: #f
+: (b)
+
+#+begin_src racket
+(define (memp f lst)
+  (define (iter xs)
+    (cond [(null? xs) #f]
+          [(f (car lst)) xs]
+          [else (iter (cdr xs))]))
+  (iter lst))
+
+(define (make-unbound! var env)
+  (let* ([frame (first-frame env)]
+         [mems (memp (lambda (binding) (eqv? (binding-variable binding) var)) frame)])
+    (cond [(or (null? frame) (not mems))
+           (error "Variable is not bind -- MAKE-UNBOUND!" var)]
+          [(null? (cdr frame))
+           (set-car! env '())]
+          [else (begin (set-car! y (cadr y))
+                       (set-cdr! y '()))])))
+#+end_src
+
+** 4.1.4 Running the Evaluator as a Program
+
+***  exp
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (setup-environment)
+  (let ([initial-env
+         (extend-environment (primitive-procedure-names)
+                             (primitive-procedure-objects)
+                             the-empty-environment)])
+    (define-variable! 'ture true initial-env)
+    (define-variable! 'false false initial-env)
+    initial-env))
+
+(define the-global-environment (setup-environment))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (primitive-procedure? expr)
+  (tagged-list? expr 'primitive))
+(define (primitive-implementation proc) (cadr proc))
+
+(define primitive-procedures
+  (list
+   (list 'car car) (list 'cdr cdr)
+   (list 'caar caar) (list 'cadr cadr)
+   (list 'cdar cdar) (list 'cadr cddr)
+   (list 'cons cons) (list 'null? null?)))
+
+(define primitive-procedure-names
+  (map car primitive-procedures))
+
+(define primitive-procedure-objects
+  (map (lambda (proc) (list 'primitive (cadr proc)))))
+
+(define (apply-primitive-procedure proc args)
+  (apply-in-underlying-scheme
+   (primitive-implementation proc) args))
+#+end_src
+
+**** `#lang sicp` in racket
+
+#+begin_src racket
+(define apply-in-underlying-scheme apply)
+(define (inner-evaluation-scope)
+  ;<<eval-core-exp>>
+  'done)
+
+(inner-evaluation-scope)
+#+end_src
+
+#+RESULTS:
+: setup-environment: undefined;
+:  cannot use before initialization
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-PqnlZq.rkt:5:0: inner-evaluation-scope
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-PqnlZq.rkt"
+
+??
+
+#+begin_src racket
+(define (print1)
+  (define (one) 1)
+  (define to-print (one))
+  (display to-print))
+(print1)
+#+end_src
+
+#+RESULTS:
+: one: undefined;
+:  cannot use before initialization
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-n3rlsg.rkt:8:0
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-n3rlsg.rkt"
+
+!!
+
+#+begin_src racket :lang racket
+(define (print1)
+  (define (one) 1)
+  (define to-print (one))
+  (display to-print))
+(print1)
+#+end_src
+
+#+RESULTS:
+: 1
+
+...
+
+#+begin_src racket
+(define (print1)
+  (define one 1)
+  (define to-print one)
+  (display to-print))
+(print1)
+#+end_src
+
+#+RESULTS:
+: one: undefined;
+:  cannot use before initialization
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-5WpJds.rkt:8:0
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-5WpJds.rkt"
+
+#+begin_src racket
+(define (print1)
+  (define (one) 1)
+  (define (to-print) (one))
+  (display (to-print)))
+(print1)
+#+end_src
+
+#+RESULTS:
+: 1
+
+...
+
+#+begin_src racket
+(define one 1)
+(define to-print one)
+(display to-print)
+#+end_src
+
+#+RESULTS:
+: 1
+
+...
+
+No wonder why I can't run example code in Book 3.5.4.
+
+The `(define <var> <body>)` is computers more eagerly than the `(define (<proc-name> <args>) <body>)` in `#lang sicp`, and the timing to bind the variable with the value is put off.
+In the top level the evaluation order is defined by racket, but in the scope of `define`, the evaluation is defined by implementations in `#lang scip`.
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
