@@ -10,4 +10,4 @@ TODO: Exercises in 2.5.3 Symbolic Algebra
 I've never tried emacs. I use Neovim a lot before reading SICP.
 
 I've read https://kchousos.github.io/posts/SICP%20in%20Emacs.html and followed it, with doomemacs.
-It was nice to use [[https://github.com/hasu/emacs-ob-racket][emacs-ob-racket]] to literate programming language. But it is not maintained and need some special config([[https://github.com/hasu/emacs-ob-racket/issues/6     ][issue #6]]), and do not support :session option([[https://github.com/hasu/emacs-ob-racket/issues/2][issue #2]]). Then I changed to [[https://www.nongnu.org/geiser/][geiser]] with racket [[https://github.com/doomemacs/doomemacs/blob/master/modules/lang/scheme/README.org][in doomemacs]].
+It is nice to use [[https://github.com/hasu/emacs-ob-racket][emacs-ob-racket]] to literate programming language. But it is not maintained and need some special config([[https://github.com/hasu/emacs-ob-racket/issues/6     ][issue #6]]), and do not support :session option([[https://github.com/hasu/emacs-ob-racket/issues/2][issue #2]]).].

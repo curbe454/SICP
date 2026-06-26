@@ -19,7 +19,7 @@ Chapter 4: Metalinguistic Abstraction
     [(definition? expr) (eval-definition expr env)]
     [(lambda? expr)
      (make-procedure (lambda-parameters expr)
-                     (lambda-body expr)
+                     (scan-out-defines (lambda-body expr)) ; Exercise 4.16
                      env)]
     [(begin? expr)
      (eval-sequence (begin-actions expr) env)]
@@ -29,15 +29,16 @@ Chapter 4: Metalinguistic Abstraction
     [(or? expr) (eval-or expr env)]
     [(let? expr) (eval (let->combination expr) env)] ; let: Exercise 4.6
     [(let*? expr) (eval (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+    [(letrec? expr) (eval (letrec->let expr) env)] ; letrec: Exercise 4.20
     [(application? expr)
-     (apply (eval (operator expr) env)
-            (list-of-values (operands expr) env))]
+     (my-apply (eval (operator expr) env)
+               (list-of-values (operands expr) env))]
     [else (error "Unknown expression type -- EVAL" expr)]))
 
-(define (apply procedure arguments)
+(define (my-apply procedure arguments)
   (cond
     [(primitive-procedure? procedure)
-     (apply-primitive-procedure procedure)]
+     (apply-primitive-procedure procedure arguments)]
     [(compound-procedure? procedure)
      (eval-sequence
       (procedure-body procedure)
@@ -121,6 +122,8 @@ And this version evals from right to left:
       false))
 
 ;; assignment
+(define (make-assignment var val)
+  (list 'set! var val))
 (define (assignment? expr)
   (tagged-list? expr 'set!))
 (define (assignment-variable expr) (cadr expr))
@@ -223,7 +226,8 @@ b) Known the reason, I know how to improve, adding a tag to the application expr
 <literal> ::= <number> | <string>
 <variable> ::= <literal> | <procedure>
 <procedure> ::= <parameters><body>
-<body> ::= <expr>
+<body> ::= <sequence>
+<sequence> ::= "(" <expr> | <expr> <expr> ")"
 
 <statement> ::= <quoted> | <lambda> | <definition> | <assignment> | <if> | <cond> | <begin> | <apply>
 <quoted> ::= "(" <quote-identifier><expr> ")"
@@ -570,7 +574,7 @@ The binding itself is also an `expr`.
   (list 'let bindings body))
 (define (let? expr) (tagged-list? expr 'let))
 (define let-bindings cadr)
-(define let-body caddr)
+(define let-body cddr)
 (define (binding? expr) (and (pair? expr) (pair? (cdr expr)) (null? (cddr expr))
                              (variable? (car expr))))
 (define bindings-first car)
@@ -591,7 +595,7 @@ The binding itself is also an `expr`.
 
   (let ([parameters-expressions (iter (let-bindings expr) '() '())])
     (make-application (make-lambda (car parameters-expressions)
-                                   (let-body expr))
+                                   (sequence->expr (let-body expr)))
                       (cdr parameters-expressions))))
 #+end_src
 
@@ -760,7 +764,7 @@ Predicate:
 
 #+begin_src racket :noweb-ref eval-core-exp
 (define (true? x)
-  (not (eq? x) false))
+  (not (eq? x false)))
 (define (false? x)
   (eq? x false))
 #+end_src
@@ -876,8 +880,6 @@ Scheme have a helpful builtin procedure `assv` to find record in an association 
 ;; (define binding-value cadr)
 (define (bind-new-value! binding val)
   (set-cdr! binding (list val)))
-(define (add-binding-to-frame! var val frame)
-  (set-car! frame (make-binding var val)))
 
 ;; this procedure is the same with example in book
 (define (extend-environment vars vals base-env)
@@ -891,7 +893,7 @@ Scheme have a helpful builtin procedure `assv` to find record in an association 
   (define (env-loop env)
     (if (eq? env the-empty-environment)
         (error "Unbound variable" var)
-        (let ([record (assv (first-frame env))])
+        (let ([record (assv var (first-frame env))])
           (if record
               (binding-value record)
               (env-loop (enclosing-environment env))))))
@@ -900,7 +902,7 @@ Scheme have a helpful builtin procedure `assv` to find record in an association 
   (define (env-loop env)
     (if (eq? env the-empty-environment)
         (error "Unbound variable -- SET!" var)
-        (let ([record (assv (first-frame env))])
+        (let ([record (assv var (first-frame env))])
           (if record
               (bind-new-value! record val)
               (env-loop (enclosing-environment env))))))
@@ -910,7 +912,7 @@ Scheme have a helpful builtin procedure `assv` to find record in an association 
          [record (assv var frame)])
     (if record
         (bind-new-value! record val)
-        (add-binding-to-frame! var val env))))
+        (set-car! env (cons (make-binding var val) frame)))))
 #+end_src
 
 *** 4.12
@@ -1010,14 +1012,10 @@ I do not allow to unbound variables in enclosing environment, that may introduce
          (extend-environment (primitive-procedure-names)
                              (primitive-procedure-objects)
                              the-empty-environment)])
-    (define-variable! 'ture true initial-env)
+    (define-variable! 'true true initial-env)
     (define-variable! 'false false initial-env)
     initial-env))
 
-(define the-global-environment (setup-environment))
-#+end_src
-
-#+begin_src racket :noweb-ref eval-core-exp
 (define (primitive-procedure? expr)
   (tagged-list? expr 'primitive))
 (define (primitive-implementation proc) (cadr proc))
@@ -1025,114 +1023,701 @@ I do not allow to unbound variables in enclosing environment, that may introduce
 (define primitive-procedures
   (list
    (list 'car car) (list 'cdr cdr)
-   (list 'caar caar) (list 'cadr cadr)
-   (list 'cdar cdar) (list 'cadr cddr)
-   (list 'cons cons) (list 'null? null?)))
+   (list 'cons cons) (list 'null? null?)
+   (list 'list list) (list 'pair? pair?)
+   (list '+ +) (list '- -) (list '* *) (list '/ /)
+   (list '= =)
+   ))
 
-(define primitive-procedure-names
+(define (primitive-procedure-names)
   (map car primitive-procedures))
 
-(define primitive-procedure-objects
-  (map (lambda (proc) (list 'primitive (cadr proc)))))
+(define (primitive-procedure-objects)
+  (map (lambda (proc) (list 'primitive (cadr proc)))
+       primitive-procedures))
 
 (define (apply-primitive-procedure proc args)
   (apply-in-underlying-scheme
    (primitive-implementation proc) args))
-#+end_src
 
-**** `#lang sicp` in racket
-
-#+begin_src racket
 (define apply-in-underlying-scheme apply)
-(define (inner-evaluation-scope)
-  ;<<eval-core-exp>>
-  'done)
-
-(inner-evaluation-scope)
 #+end_src
 
-#+RESULTS:
-: setup-environment: undefined;
-:  cannot use before initialization
-:   context...:
-:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-PqnlZq.rkt:5:0: inner-evaluation-scope
-:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-PqnlZq.rkt"
+**** shadow `apply` in `#lang sicp` in racket
 
-??
+The `apply` is defined as a macro, it's not good to redefine it as a procedure name. In `#lang sicp`, this makes an error:
 
 #+begin_src racket
-(define (print1)
-  (define (one) 1)
-  (define to-print (one))
-  (display to-print))
-(print1)
+;<<eval-core-exp>>
+(define the-global-environment (setup-environment))
 #+end_src
 
 #+RESULTS:
-: one: undefined;
-:  cannot use before initialization
+: apply: undefined;
+:  cannot reference an identifier before its definition
+:   in module: "c:\Users\asu\AppData\Local\Temp\org-babel-mKGmrQ.rkt"
 :   context...:
-:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-n3rlsg.rkt:8:0
-:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-n3rlsg.rkt"
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-mKGmrQ.rkt"
 
-!!
+This may because the statements is not evaluated sequentially. If I copy the codes(by `org-babel-expand-src-block`) into a file, it still errors.
+If I use geiser other than emacs-ob-racket(which copy codes into a temp file to execute), this won't happen.
 
-#+begin_src racket :lang racket
-(define (print1)
-  (define (one) 1)
-  (define to-print (one))
-  (display to-print))
-(print1)
+#+begin_src scheme :noweb yes :results output
+(require sicp)
+(define apply-in-underlying-scheme apply)
+;<<eval-core-exp>>
+(define the-global-environment (setup-environment))
+(display the-global-environment)
+(display (eval '1 the-global-environment))
+#+end_src
+
+#+RESULTS:
+: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))1
+
+I decide to go back to change the name of `apply` to `my-apply` in this system.
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define the-global-environment (setup-environment))
+the-global-environment
+(eval 'false the-global-environment)
+
+;<<sicp>>
+(for-each (lambda (x) ((sicp 'displayln) (eval x the-global-environment)))
+          (list
+           '(car (cons 1 2))
+           '(define x 1)
+           '(+ x 1)
+           '(quote (1 car))
+           '(define (square x) (* x x))
+           '(square 11)))
+the-global-environment
+#+end_src
+
+#+RESULTS:
+: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))
+: #f
+: 1
+: ok
+: 2
+: (1 car)
+: ok
+: 121
+: #0=(((square (procedure (x) ((* x x)) #0#)) (x 1) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))
+
+*** exp
+
+Well, the `driver-loop` is a REPL(Read-Eval-Print-Loop), but the book didn't mentioned about this here, it's mentiened at Book 1.1.1.
+
+#+begin_src racket :noweb-ref repl-exp
+(define input-prompt ";;; M-Eval input:")
+(define output-prompt ";;; M-Eval output:")
+
+(define (driver-loop)
+  (prompt-for-input input-prompt)
+  (let ([input (read)])
+    (let ([output (eval input the-global-environment)])
+      (announce-output output-prompt)
+      (user-print output))
+    (driver-loop)))
+
+(define (prompt-for-input string)
+  (newline) (newline) (display string) (newline))
+(define (announce-output string)
+  (newline) (display string) (newline))
+
+(define (user-print object)
+  (if (compound-procedure? object)
+      (display (list 'compound-procedure
+                     (procedure-parameters object)
+                     (procedure-body object)
+                     '<procedure-env>))
+      (display object)))
+#+end_src
+
+#+begin_src racket :tangle "4.1.4-repl.rkt" :comments link :results none
+;<<eval-core-exp>>
+(define the-global-environment (setup-environment))
+
+;<<repl-exp>>
+(driver-loop)
+#+end_src
+
+It works perfect:
+
+#+begin_src log
+————— run 4.1.4-repl.rkt —————
+
+
+;;; M-Eval input:
+(define (append x y) (if (null? x) y (cons (car x) (append (cdr x) y))))
+
+;;; M-Eval output:
+ok
+
+;;; M-Eval input:
+(append '(a b c) '(d e f))
+
+;;; M-Eval output:
+(a b c d e f)
+
+;;; M-Eval input:
+#+end_src
+
+But I don't understand why & how the `'` quote works. Following the book, I didn't add this functionality explicitly.
+
+Let me see:
+
+#+begin_src racket
+(number? '1)
+(number? 1)
+#+end_src
+
+#+RESULTS:
+: #t
+: #t
+
+In scheme, to execute "(number? '1)" is `(eval (quote (number? '1)))` => `(apply (eval number?) (list (eval '1)))` => `(apply number? '(1))`. So the "`" quote is evaluated by intepreting my input. It seems the new evaluation system is the same.
+
+*** 4.14
+
+`map` recieve a function as one of an argument. In our system, they're either `(primitive #<procedure>)` or `(procedure <body>)`. The procedure tag can't be understand by the implementation of the scheme builtin `map`.
+
+Below implement a `map` in the evaluation system, the `my-apply` will strip the procedure tag, and all things work well.
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define the-global-environment (setup-environment))
+(eval '(define (map f xs)
+         (if (null? xs) xs
+             (cons (f (car xs)) (map f (cdr xs))))) the-global-environment)
+(eval '(map (lambda (x) (+ x 1)) '(1 2)) the-global-environment)
+#+end_src
+
+#+RESULTS:
+: ok
+: (2 3)
+
+** 4.1.5 Data as Programs
+
+*** exp
+
+#+begin_src racket
+;<<eval-core-exp>>
+;<<higher-order>>
+(define global (setup-environment))
+(((F 'flip) eval) global '(define (factorial n)
+                            (if (= n 1) 1
+                                (* n (factorial (- n 1))))))
+(((F 'flip) eval) global '(factorial 4))
+#+end_src
+
+#+RESULTS:
+: ok
+: 24
+
+I know how to use this at https://docs.racket-lang.org/r5rs/r5rs-std/r5rs-Z-H-9.html#%25_idx_600.
+
+#+begin_src racket
+(eval '1 (null-environment 5))
 #+end_src
 
 #+RESULTS:
 : 1
 
-...
+*** 4.15
+
+It's the halting problem!
+
+#+begin_src racket :results none
+(define (run-forever) (run-forever))
+
+(define (try p)
+  (if (halts? p p)
+      (run-forever)
+      'halted))
+#+end_src
+
+To evaluate `(try try)`, if it evaluates to `'halted`, this means `(halts? try try) => false`, `halts?` judges the `try` applied with `try` can be halted. While `halts?` judges the `try` for `try` can halt, the `(halts? try try)` would evaluates to true, and the `(try try)` should run forerver.
+
+If `(try try)` runs forever, this means `halts?` judges the `try` applied with `try` can not halt. While this means `(halts? try try) => false`, it should evaluates to `'halted`.
+
+** 4.1.6 Internal Definitions
+
+*** exp
 
 #+begin_src racket
-(define (print1)
-  (define one 1)
-  (define to-print one)
-  (display to-print))
-(print1)
+;<<eval-core-exp>>
+;<<higher-order>>
+(define global (setup-environment))
+(((F 'flip) eval) global
+                  '(define (even? x)
+                     (define (isodd n)
+                       (if (= n 0) false
+                           (iseven (- n 1))))
+                     (define (iseven n)
+                       (if (= n 0) true
+                           (isodd (- n 1))))
+                     (iseven x)))
+(map ((F 'partial) ((F 'flip) eval) global)
+     (list
+      '(even? 2)
+      '(even? 3)))
 #+end_src
 
 #+RESULTS:
-: one: undefined;
+: ok
+: (#t #f)
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define global (setup-environment))
+(eval '(define (main)
+         (define (b) 1)
+         (define a (b))
+         a) global)
+(eval '(main) global)
+#+end_src
+
+#+RESULTS:
+: ok
+: 1
+
+In fact, `define` in `#lang sicp` also can't do this:
+
+#+begin_src racket
+(define (main)
+  (define (b) 1)
+  (define a (b))
+  a)
+(main)
+#+end_src
+
+#+RESULTS:
+: b: undefined;
 :  cannot use before initialization
 :   context...:
-:    c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-5WpJds.rkt:8:0
-:    body of "c:\Users\asu\AppData\Local\Temp\babel-kdN6iB\org-babel-5WpJds.rkt"
+:    c:\Users\asu\AppData\Local\Temp\org-babel-7CLhFN.rkt:8:0
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-7CLhFN.rkt"
+
+See the error message, it's because the definition of the implementation of internal definition of R5RS. Detail are here and Exercise 4.18, 4.19, 4.20: https://conservatory.scheme.org/schemers/Documents/Standards/R5RS/HTML/r5rs-Z-H-8.html#%_sec_5.2.2.
+
+*** 4.16
+
+**** a)
+
+My implementation of environment of the intepreter is defined in Exercise 4.11.
+
+Just check the return value of the `env-loop`.
 
 #+begin_src racket
-(define (print1)
-  (define (one) 1)
-  (define (to-print) (one))
-  (display (to-print)))
-(print1)
+(define (lookup-variable-value-check-unassigned var env)
+  (define (env-loop env)
+    (if (eq? env the-empty-environment)
+        (error "Unbound variable" var)
+        (let ([record (assv var (first-frame env))])
+          (if record
+              (binding-value record)
+              (env-loop (enclosing-environment env))))))
+  (let ([res (env-loop env)])
+    (if (eqv? res '*unassigned*)
+        (error "Value of var is unassigned" var))))
+
+;<<eval-core-exp>>
+(define global (setup-environment))
+(eval '(define x '*unassigned*) global)
+(eval 'x global)
+
+(lookup-variable-value-check-unassigned 'x global)
 #+end_src
 
 #+RESULTS:
-: 1
+: Value of var is unassigned x
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-Ppx8JL.rkt"
+: ok
+: *unassigned*
 
-...
+**** b)
+
+In the intepreter, the procedure is expressed as a tagged list of structure `(<procedure-identifer> <parameters> <body> <env>)` (see Book 4.1.3), and <body>s are <sequence>s (see Book 4.1.1 and my answer of Exercise 4.3).
+
+#+NAME: scan-out-defines
+#+begin_src racket :noweb-ref eval-core-exp
+(define (unassigned-bindings vars)
+  (map (lambda (var) (make-binding var ''*unassigned*)) vars))
+
+(define (scan-out-defines proc-body)
+  (define (reversed lst)
+    (define (iter xs acc)
+      (if (null? xs) acc
+          (iter (cdr xs) (cons (car xs) acc))))
+    (iter lst '()))
+  (define (iter rests acc-v acc-e)
+    ;; in r5rs, the last expr of a procedure body should not be a definition;
+    ;; but I choose to return a '<void> simply
+    (cond [(null? rests) (list (reversed acc-v) (reversed acc-e) '<void>)]
+          [(and (last-expr? rests)
+                (not (definition? (first-expr rests))))
+           (list (reversed acc-v) (reversed acc-e) (first-expr rests))]
+          [(definition? (first-expr rests))
+           (let ([def (first-expr rests)])
+             (iter (cdr rests)
+                   (cons (definition-variable def) acc-v)
+                   (cons (definition-value def) acc-e)))]
+          [else (iter (cdr rests) acc-v acc-e)]))
+  (let ([vars-vals-expr (iter proc-body '() '())])
+    (let ([vars (car vars-vals-expr)]
+          [vals (cadr vars-vals-expr)]
+          [expr (caddr vars-vals-expr)])
+      (if (null? vars) proc-body
+          (list (make-let (unassigned-bindings vars)
+                          (append (map (lambda (var val)
+                                         (make-assignment var val)) vars vals)
+                                  (list expr))))))))
+#+end_src
 
 #+begin_src racket
-(define one 1)
-(define to-print one)
-(display to-print)
+;<<eval-core-exp>>
+(define global (setup-environment))
+
+(scan-out-defines
+ (procedure-body '(define (main)
+                    ((define (square x) (* x x))
+                     (define (double x) (* x 2))
+                     (double (square 3))))))
+(eval '(define (main)
+         (define (square x) (* x x))
+         (define (double x) (* x 2))
+         (double (square 3))) global)
+(eval '(main) global)
 #+end_src
 
 #+RESULTS:
-: 1
+: ((let ((square (quote *unassigned*)) (double (quote *unassigned*))) ((set! square (lambda (x) (* x x))) (set! double (lambda (x) (* x 2))) (double (square 3)))))
+: ok
+: 18
 
-...
+**** c)
 
-No wonder why I can't run example code in Book 3.5.4.
+Think what is the mean to add this mechanism to the language. To make inner `define` expand to parallel bindings of `let`, it's better to add it in `eval`. And this will put off the expanding to the evaluation other than parse.
+If installing it to `make-procedure`, expanding would be move to parsing process.
+It's not good to install it to `procedure-body` to break out abstraction barrier.
 
-The `(define <var> <body>)` is computers more eagerly than the `(define (<proc-name> <args>) <body>)` in `#lang sicp`, and the timing to bind the variable with the value is put off.
-In the top level the evaluation order is defined by racket, but in the scope of `define`, the evaluation is defined by implementations in `#lang scip`.
+Just add the `scan-out-defines` in the `eval` of `(lambda? expr)` options.
+
+#+begin_src racket
+    [(lambda? expr)
+     (make-procedure (lambda-parameters expr)
+                     (scan-out-defines (lambda-body expr)) ;; here
+                     env)]
+#+end_src
+
+*** 4.17
+
+To expand
+
+#+begin_src racket
+(lambda <vars>
+  (define u <e1>)
+  (define v <e2>)
+  <e3>)
+#+end_src
+
+into
+
+#+begin_src racket
+(lambda <vars>
+  (let ((u '*unassigned*)
+        (v '*unassigned*))
+    (set! u <e1>)
+    (set! v <e2>)
+    <e3>))
+#+end_src
+
+, a new `let` scope is defined, so an extra frame is added. The system finds value from the upper frame so evaluating this would not failure.
+
+Graphs to descript the applications of `((lambda <vars> <expr with inner defines>) <args>)`:
+
+#+begin_src
+table1 <- global:  ; nothing special
+by-lambda <- E1: <vars>(<args>), u(<e1>), v(<e2>)
+#+end_src
+
+#+begin_src
+table1 <- global:  ; nothing special
+by-lambda <- E1: <vars>(<args>)
+by-let <- E2: u(<e1>), v(<e2>)
+#+end_src
+
+To make them defines simultaneously, a natural thought is to combine inner definitions with `lambda` or `<e3>`. A viewpoint is that the new `let` bindings with `<e3>` consists to a new expr `<e4>`. In this thinking path, the only is to combine them with `lambda`.
+This would transform the above example to be:
+
+#+begin_src racket
+(lambda (<vars-without-parentheses> u v)
+  ; the value of `u` is `<e1>`, `v` is `<e2>`
+  <e3>)
+#+end_src
+
+*** 4.18
+
+For this transform:
+
+#+begin_src racket
+(lambda <vars>
+  (let ((u '*unassigned*)
+        (v '*unassigned*))
+    (let ((a <e1>)
+          (b <e2>))
+      (set! u a)
+      (set! v b))
+    <e3>))
+#+end_src
+
+when evaluating `<e2>`, the `u` is not assigned. (So it's more like simultaneous assignments)
+
+But for transform metioned in book(see Exercise 4.17 b or 4.18), when evaluating `<e2>`, `u` is assigned.
+
+So, for this below `solve` procedure in Book 3.5.4, this transform to evaluate `solve` would raises error like `y is not defined`. But the transform mentioned in the book, this is syntax legal.
+
+#+begin_src racket :results none
+(define (solve f y0 dt)
+  (define y (integral (delay dy) y0 dt))
+  (define dy (stream-map f y))
+  y)
+#+end_src
+
+Alike example see above of my notes with example of Book 4.1.6.
+
+*** 4.19
+
+Before Exercise 4.16, the expr would be evaluated to 16. This is because the system tries to find in upper environment `a` when `a` is not defined in current frame, and there's no `'*unassigned*` mechanism. If there is, it would raise an error.
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define global (setup-environment))
+
+(eval '(let ((a 1))
+         (define (f x)
+           (define b (+ a x))
+           (define a 5)
+           (+ a b))
+         (f 10))
+      global)
+#+end_src
+
+#+RESULTS:
+: +: contract violation
+:   expected: number?
+:   given: *unassigned*
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt:58:0: eval-assignment
+:    c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt:53:0: eval-sequence
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt"
+
+It's weird to make it evaluates to 20, since the order of the definition is `b a` other than `a b`. To implement this, I come up with a convenient way to use error handling:
+
+#+begin_src racket :results none
+(define (f x)
+  (define b (+ a x))
+  (define a 5)
+  (+ a b))
+
+; pseudo code
+(define (f x)
+  (try (define b (+ a x))
+       (unassigned-error
+        (try (define a 5)
+             (unassigned-error
+              (raise-unassigned-error)))
+        (define b (+ a x))))
+  (+ a b))
+#+end_src
+
+This would expands to 2n-1 definition statements if there's n `define`s. But this requires a `try` macro which do not create a new scope and the side effect of `define`. If the body of the inner `define`s makes side effect, this method would computes wrong results!
+
+It's avaliable to adjust the order of `define`s when parsing. Change the implementation of `let->combination` to sort it. It would be kind of complex.
+
+*** 4.20
+
+**** a)
+
+To expand `(letrec ([<var> <val>] <other-bindings>) <body>)` to `(let ([<var> '*unassigned*] <other-bindings>) ((set! <var> <val>) <body-exprs>))`.
+
+#+begin_src racket :noweb-ref eval-core-exp
+(define (unzip2 pairs)
+  ;<<fold>>
+  (define first car)
+  (define second cadr)
+  (fold-right (lambda (pair acc)
+                (cons (cons (first pair) (car acc))
+                      (cons (second pair) (cdr acc))))
+              pairs (cons nil nil)))
+(define (bindings-variables-values bindings)
+  (unzip2 bindings))
+
+(define (letrec? expr)
+  (tagged-list? expr 'letrec))
+(define letrec-bindings cadr)
+(define letrec-body cddr)
+(define (letrec->let expr)
+  (let ([vars-vals (bindings-variables-values (letrec-bindings expr))])
+    (make-let (unassigned-bindings (car vars-vals))
+              (append (map (lambda (var val) (make-assignment var val)) (car vars-vals) (cdr vars-vals))
+                      (letrec-body expr)))))
+#+end_src
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define global (setup-environment))
+
+(define expr '(letrec ([fact
+                        (lambda (n)
+                          (if (= n 1) 1
+                              (* n (fact (- n 1)))))])
+                (fact 4)))
+
+(letrec->let expr)
+(eval expr global)
+#+end_src
+
+#+RESULTS:
+: (let ((fact (quote *unassigned*))) ((set! fact (lambda (n) (if (= n 1) 1 (* n (fact (- n 1)))))) (fact 4)))
+: 24
+
+**** b)
+
+#+begin_src racket :results none
+(define (f x)
+  (letrec ((even?
+            (lambda (n)
+              (if (= n 0)
+                  true
+                  (odd? (- n 1)))))
+           (odd?
+            (lambda (n)
+              (if (= n 0)
+                  false
+                  (even? (- n 1))))))
+    <rest of body of f>))
+#+end_src
+
+The environment when evaluating `<rest of body of f>` in `(f 5)`:
+
+#+begin_src
+table <- global: f((x), (letrec ...))
+by-f <- E1: (global), x(5)
+by-letrec <- E2: (E1), even?((n), ...), odd?((n), ...), <what defined in the rest of body of f>
+by-even? <- E3: (E2), n(5)
+#+end_src
+
+#+begin_src
+table <- global: f((x), (letrec ...))
+by-f <- E1: (global), x(5)
+by-let <- E2: (E1), even?((n), ...), odd?((n), ...), <what defined in the rest of body of f>
+by-even? <- E3: (E1), n(5)
+#+end_src
+
+The only difference is that the inner procedure calling would inherit different environment.
+
+*** 4.21
+
+Wow, it's lambda calculus.
+
+#+begin_src racket
+((lambda (n)
+   ((lambda (fact)
+      (fact fact n))
+    (lambda (ft k)
+      (if (= k 1)
+          1
+          (* k (ft ft (- k 1)))))))
+ 10)
+#+end_src
+
+#+RESULTS:
+: 3628800
+
+**** a)
+
+I try to refactor it to a understandable form.
+
+#+begin_src racket
+(define (factorial n)
+  (define (b ft k)
+    (if (= k 1)
+        1
+        (* k (ft ft (- k 1)))))
+  (b b n))
+(factorial 10)
+#+end_src
+
+#+RESULTS:
+: 3628800
+
+The `(lambda (n) ...)` to memorize the value of n, the `(lambda (fact) (fact fact n))` to use the `fact` twice. The `(lambda (ft k) ...)` calling it self to recurse.
+
+**** b)
+
+#+begin_src racket
+(define (f x)
+  ((lambda (even? odd?)
+     (even? even? odd? x))
+   (lambda (ev? od? n)
+     (if (= n 0) true (od? ev? od? (- n 1))))
+   (lambda (ev? od? n)
+     (if (= n 0) false (ev? ev? od? (- n 1))))))
+
+(f 5) ; => #f
+(map f (list 1 3 5 7 2 4 6 8))
+#+end_src
+
+#+RESULTS:
+: #f
+: (#f #f #f #f #t #t #t #t)
+
+* Helper functions
+
+#+begin_src racket :noweb-ref sicp
+(define (sicp m)
+  (define (square x) (* x x))
+  (define (average a b) (/ (+ a b) 2))
+  (define (displayln x) (display x) (newline))
+
+  (cond
+    [(eq? m 'square) square]
+    [(eq? m 'average) average]
+    [(eq? m 'displayln) displayln]
+    [else (error "Unknown procedure -- SICP")]))
+#+end_src
+
+#+begin_src racket :noweb-ref higher-order
+(define (F m)
+  (define (id x) x)
+  (define (partial f . args1)
+    (lambda args2 (apply f (append args1 args2))))
+  (define (compose . f1s) ; functions in f-s only need one argument
+    (if (null? f1s) id
+        (lambda (x) ((apply compose (cdr f1s)) (apply (car f1s) (list x))))))
+  (define (flip f2) (lambda (x y) (f2 y x)))
+
+  (cond
+    [(eq? m 'id) id]
+    [(eq? m 'partial) partial]
+    [(eq? m 'compose) compose]
+    [(eq? m 'flip) flip]
+    [else (error "Unknown procedure -- F" m)]))
+#+end_src
+
+#+begin_src racket :noweb-ref fold
+(define (fold-left f acc lst)
+  (if (null? lst) acc
+      (fold-left f (f (car lst) acc) (cdr lst))))
+
+(define (fold-right f lst acc)
+  (if (null? lst) acc
+      (f (car lst) (fold-right f (cdr lst) acc))))
+#+end_src
 
 * COMMENT Local Variables
 # Local Variables:
