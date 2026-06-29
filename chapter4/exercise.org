@@ -595,7 +595,7 @@ The binding itself is also an `expr`.
 
   (let ([parameters-expressions (iter (let-bindings expr) '() '())])
     (make-application (make-lambda (car parameters-expressions)
-                                   (sequence->expr (let-body expr)))
+                                   (list (sequence->expr (let-body expr))))
                       (cdr parameters-expressions))))
 #+end_src
 
@@ -1072,7 +1072,7 @@ If I use geiser other than emacs-ob-racket(which copy codes into a temp file to 
 #+end_src
 
 #+RESULTS:
-: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))1
+: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>))))1
 
 I decide to go back to change the name of `apply` to `my-apply` in this system.
 
@@ -1095,7 +1095,7 @@ the-global-environment
 #+end_src
 
 #+RESULTS:
-: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))
+: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>))))
 : #f
 : 1
 : ok
@@ -1103,7 +1103,7 @@ the-global-environment
 : (1 car)
 : ok
 : 121
-: #0=(((square (procedure (x) ((* x x)) #0#)) (x 1) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>))))
+: #0=(((square (procedure (x) ((* x x)) #0#)) (x 1) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>))))
 
 *** exp
 
@@ -1356,7 +1356,7 @@ In the intepreter, the procedure is expressed as a tagged list of structure `(<p
   (define (iter rests acc-v acc-e)
     ;; in r5rs, the last expr of a procedure body should not be a definition;
     ;; but I choose to return a '<void> simply
-    (cond [(null? rests) (list (reversed acc-v) (reversed acc-e) '<void>)]
+    (cond [(null? rests) (list (reversed acc-v) (reversed acc-e) ''<void>)]
           [(and (last-expr? rests)
                 (not (definition? (first-expr rests))))
            (list (reversed acc-v) (reversed acc-e) (first-expr rests))]
@@ -1372,30 +1372,27 @@ In the intepreter, the procedure is expressed as a tagged list of structure `(<p
           [expr (caddr vars-vals-expr)])
       (if (null? vars) proc-body
           (list (make-let (unassigned-bindings vars)
-                          (append (map (lambda (var val)
-                                         (make-assignment var val)) vars vals)
-                                  (list expr))))))))
+                          (sequence->expr
+                           (append (map (lambda (var val)
+                                          (make-assignment var val)) vars vals)
+                                   (list expr)))))))))
 #+end_src
 
 #+begin_src racket
 ;<<eval-core-exp>>
 (define global (setup-environment))
 
-(scan-out-defines
- (procedure-body '(define (main)
-                    ((define (square x) (* x x))
-                     (define (double x) (* x 2))
-                     (double (square 3))))))
 (eval '(define (main)
          (define (square x) (* x x))
          (define (double x) (* x 2))
          (double (square 3))) global)
+(procedure-body (lookup-variable-value 'main global))
 (eval '(main) global)
 #+end_src
 
 #+RESULTS:
-: ((let ((square (quote *unassigned*)) (double (quote *unassigned*))) ((set! square (lambda (x) (* x x))) (set! double (lambda (x) (* x 2))) (double (square 3)))))
 : ok
+: ((let ((square (quote *unassigned*)) (double (quote *unassigned*))) (begin (set! square (lambda (x) (* x x))) (set! double (lambda (x) (* x 2))) (double (square 3)))))
 : 18
 
 **** c)
@@ -1511,9 +1508,9 @@ Before Exercise 4.16, the expr would be evaluated to 16. This is because the sys
 :   expected: number?
 :   given: *unassigned*
 :   context...:
-:    c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt:58:0: eval-assignment
-:    c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt:53:0: eval-sequence
-:    body of "c:\Users\asu\AppData\Local\Temp\babel-wlfyEl\org-babel-O5tnsR.rkt"
+:    c:\Users\asu\AppData\Local\Temp\org-babel-oPVDyH.rkt:58:0: eval-assignment
+:    c:\Users\asu\AppData\Local\Temp\org-babel-oPVDyH.rkt:53:0: eval-sequence
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-oPVDyH.rkt"
 
 It's weird to make it evaluates to 20, since the order of the definition is `b a` other than `a b`. To implement this, I come up with a convenient way to use error handling:
 
@@ -1563,8 +1560,8 @@ To expand `(letrec ([<var> <val>] <other-bindings>) <body>)` to `(let ([<var> '*
 (define (letrec->let expr)
   (let ([vars-vals (bindings-variables-values (letrec-bindings expr))])
     (make-let (unassigned-bindings (car vars-vals))
-              (append (map (lambda (var val) (make-assignment var val)) (car vars-vals) (cdr vars-vals))
-                      (letrec-body expr)))))
+              (sequence->expr (append (map (lambda (var val) (make-assignment var val)) (car vars-vals) (cdr vars-vals))
+                                      (letrec-body expr))))))
 #+end_src
 
 #+begin_src racket
@@ -1582,7 +1579,7 @@ To expand `(letrec ([<var> <val>] <other-bindings>) <body>)` to `(let ([<var> '*
 #+end_src
 
 #+RESULTS:
-: (let ((fact (quote *unassigned*))) ((set! fact (lambda (n) (if (= n 1) 1 (* n (fact (- n 1)))))) (fact 4)))
+: (let ((fact (quote *unassigned*))) (begin (set! fact (lambda (n) (if (= n 1) 1 (* n (fact (- n 1)))))) (fact 4)))
 : 24
 
 **** b)
@@ -1675,6 +1672,335 @@ The `(lambda (n) ...)` to memorize the value of n, the `(lambda (fact) (fact fac
 #+RESULTS:
 : #f
 : (#f #f #f #f #t #t #t #t)
+
+** 4.1.7 Separating Syntax Analysis from Execution
+
+*** exp
+
+#+begin_src racket :noweb-ref eval-analyzed
+(define (eval expr env)
+  ((analyze expr) env))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-analyzed
+(define (analyze expr)
+  (cond [(self-evaluating? expr) (analyze-self-evaluating expr)]
+        [(quoted? expr) (analyze-quoted expr)]
+        [(variable? expr) (analyze-variable expr)]
+        [(assignment? expr) (analyze-assignment expr)]
+        [(definition? expr) (analyze-definition expr)]
+        [(if? expr) (analyze-if expr)]
+        [(lambda? expr) (analyze-lambda expr)]
+        [(begin? expr) (analyze-sequence (begin-actions expr))]
+        [(cond? expr) (analyze (cond->if expr))]
+        [(let? expr) (analyze (let->combination expr))]         ; let: Exercise 4.22
+        [(application? expr) (analyze-application expr)]
+        [else (error "Unknown expression type -- ANALYZE" expr)]))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-analyzed
+(define (analyze-self-evaluating expr)
+  (lambda (env) expr))
+(define (analyze-quoted expr)
+  (let ([qval (text-of-quotation expr)])
+    (lambda (env) qval)))
+(define (analyze-variable expr)
+  (lambda (env) (lookup-variable-value expr env)))
+
+(define (analyze-assignment expr)
+  (let ([var (assignment-variable expr)]
+        [vproc (analyze (assignment-value expr))])
+    (lambda (env)
+      (set-variable-value! var (vproc env) env)
+      'ok)))
+
+(define (analyze-definition expr)
+  (let ([var (definition-variable expr)]
+        [vproc (analyze (definition-value expr))])
+    (lambda (env)
+      (define-variable! var (vproc env) env)
+      'ok)))
+
+(define (analyze-if expr)
+  (let ([pproc (analyze (if-predicate expr))]
+        [cproc (analyze (if-consequent expr))]
+        [aproc (analyze (if-alternative expr))])
+    (lambda (env)
+      (if (true? (pproc env))
+          (cproc env) (aproc env)))))
+
+(define (analyze-lambda expr)
+  (let ([vars (lambda-parameters expr)]
+        [bproc (analyze-sequence (lambda-body expr))])
+    (lambda (env) (make-procedure vars bproc env))))
+
+(define (analyze-sequence exprs)
+  (define (sequentially proc1 proc2)
+    (lambda (env) (proc1 env) (proc2 env)))
+  (define (loop first-proc rest-procs)
+    (if (null? rest-procs)
+        first-proc
+        (loop (sequentially first-proc (car rest-procs))
+              (cdr rest-procs))))
+  (let ([procs (map analyze exprs)])
+    (if (null? procs)
+        (error "Empty sequence -- ANALYZE"))
+    (loop (car procs) (cdr procs))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-analyzed
+(define (analyze-application expr)
+  (let ([fproc (analyze (operator expr))]
+        [aprocs (map analyze (operands expr))])
+    (lambda (env)
+      (execute-application (fproc env)
+                           (map (lambda (proc) (proc env)) aprocs)))))
+
+(define (execute-application proc args)
+  (cond [(primitive-procedure? proc)
+         (apply-primitive-procedure proc args)]
+        [(compound-procedure? proc)
+         ((procedure-body proc)
+          (extend-environment (procedure-parameters proc)
+                              args
+                              (procedure-environment proc)))]
+        [else (error "Unknown procedure type -- EXECUTE-APPLICATION" proc)]))
+#+end_src
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define (test)
+  ;<<eval-analyzed>>
+  (define (eval-displayln expr env) (display (eval expr env)) (newline))
+  (define global (setup-environment))
+  (eval-displayln '(define x 10) global)
+  (eval-displayln 'x global)
+)
+(test)
+#+end_src
+
+#+RESULTS:
+: ok
+: 10
+
+Well, I need some noweb to simplify them:
+
+#+begin_src racket-bad-syntax :noweb yes :noweb-ref eval-analyzed-test-start
+;<<eval-core-exp>>
+(define (eval-analyzed-scope)
+  ;<<eval-analyzed>>
+  (define (eval-displayln expr env) (display (eval expr env)) (newline))
+  (define global (setup-environment))
+#+end_src
+
+#+begin_src racket-bad-syntax :noweb yes :noweb-ref eval-analyzed-test-end
+)
+(eval-analyzed-scope)
+#+end_src
+
+#+begin_src racket
+;<<eval-analyzed-test-start>>
+(eval-displayln '(+ 1 1) global)
+;<<eval-analyzed-test-end>>
+#+end_src
+
+#+RESULTS:
+: 2
+
+*** 4.22
+
+#+begin_src racket
+;<<eval-analyzed-test-start>>
+(eval-displayln '(let ([x 1]) (+ x x)) global)
+;<<eval-analyzed-test-end>>
+#+end_src
+
+#+RESULTS:
+: 2
+
+*** 4.23
+
+#+begin_src racket :noweb-ref 4-23
+(define (analyze-sequence exps)
+  (define (execute-sequence procs env)
+    (cond ((null? (cdr procs)) ((car procs) env))
+          (else ((car procs) env)
+                (execute-sequence (cdr procs) env))))
+  (let ((procs (map analyze exps)))
+    (if (null? procs)
+        (error "Empty sequence -- ANALYZE"))
+    (lambda (env) (execute-sequence procs env))))
+#+end_src
+
+For sequence `((set! x 1))`, this version will be analyzed to:
+
+#+begin_src racket
+(lambda (env) ; by anayze-sequence
+  ((lambda (env) ; by (map analyze exps)
+     (set-variable-value! x (lambda (env) 1)) 'ok)
+   env))
+#+end_src
+
+The before version analyzes to:
+
+#+begin_src racket
+(lambda (env) ; by (map analyze exprs)
+  (set-variable-value! x (lambda (env) 1)) 'ok)
+#+end_src
+
+This is because the before version will check if there's only one expr in the sequence, but this version do not.
+
+For sequence `((set! x 1) x)`, they are going to be analyzed to:
+
+#+begin_src racket
+;; this version
+(lambda (env) ; by analyze-sequence
+  ((lambda (env)
+     (set-variable-value! x (lambda (env) 1)) 'ok)
+   env)
+  ((lambda (env) (lookup-variable-value 'x env)) env))
+
+;; before version
+(lambda (env) ; by sequentially
+  ((lambda (env)
+     (set-variable-value! x (lambda (env) 1)) 'ok) env)
+  ((lambda (env) (lookup-variable-value 'x env)) env))
+#+end_src
+
+In this case the two version analyze to the same result.
+
+*** 4.24
+
+In racket language, there's some procedures which can be used to count time. I went to learn how to use `#%require` in racket `#lang sicp`. https://docs.racket-lang.org/reference/require.html#%28form._%28%28quote._~23~25kernel%29._~23~25require%29%29
+
+#+begin_src racket
+(#%require (only racket current-process-milliseconds
+                 stream-cons stream-map stream-ref stream-first stream-rest))
+
+(define (stream-map2 f xs ys)
+  (stream-cons (f (stream-first xs) (stream-first ys))
+               (stream-map2 f (stream-rest xs) (stream-rest ys))))
+(define ones (stream-cons 1 ones))
+(define integers (stream-cons 1 (stream-map2 + ones integers)))
+
+(define (time-procedure-milliseconds f)
+  (let* ([start (current-process-milliseconds)]
+         [res (f)]
+         [end (current-process-milliseconds)])
+    (map display (list
+                  (- end start) " ms: " res))
+    (newline)))
+(time-procedure-milliseconds (lambda () (stream-ref integers (* 100 1000))))
+#+end_src
+#+RESULTS:
+: 78 ms: 100001
+
+#+begin_src racket :noweb-ref time-repeat-procedure-milliseconds
+(#%require (only racket current-process-milliseconds))
+
+(define (time-repeat-procedure-milliseconds n f)
+  (define (iter i)
+    (if (>= i (- n 1)) (f)
+        (begin (f) (iter (+ i 1)))))
+  (let* ([start (current-process-milliseconds)]
+         [res (iter 0)]
+         [end (current-process-milliseconds)])
+    (map display (list
+                  (- end start) " ms: " res))
+    (newline)))
+#+end_src
+
+#+begin_src racket
+;<<time-repeat-procedure-milliseconds>>
+(define dataset
+  (list
+   '1
+   ''x
+   '+
+   '(set! / 1)           ; randomly choose a symbol to assign
+   '(define x 1)
+   '(if false true false)
+   '(lambda () '())
+   '(begin 1 6391)
+   '(+ 1 1)
+   ))
+
+(define (eval-analyzed expr env) (expr env))
+(define times (* 10 1000 1000))
+
+;<<eval-analyzed-test-start>>
+(begin
+  (map
+   (lambda (expr)
+     (let ([analyzed (analyze expr)])
+       (time-repeat-procedure-milliseconds times (lambda () (eval-analyzed analyzed global)))))
+   dataset)
+  #f)
+;<<eval-analyzed-test-end>>
+(define global (setup-environment))
+(begin
+  (map
+   (lambda (expr)
+     (time-repeat-procedure-milliseconds times (lambda () (eval expr global))))
+   dataset)
+  #f)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+31 ms: 1
+16 ms: x
+250 ms: (primitive #<procedure:+>)
+438 ms: ok
+93 ms: ok
+172 ms: #f
+78 ms: (procedure () #<procedure:...rg-babel-hrFwPp.rkt:421:6> (((x 1) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ 1) (= (primitive #<procedure:=>)))))
+32 ms: 6391
+562 ms: 2
+#f
+31 ms: 1
+32 ms: x
+265 ms: (primitive #<procedure:+>)
+469 ms: ok
+141 ms: ok
+250 ms: #f
+171 ms: (procedure () ((quote ())) (((x 1) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ 1) (= (primitive #<procedure:=>)))))
+79 ms: 6391
+578 ms: 2
+(#<void> #<void> #<void> #<void> #<void> #<void> #<void> #<void> #<void>)
+#f
+#+end_example
+
+Let me see how much time it costs when combining analyzing and evaluating.
+
+#+begin_src racket
+;<<time-repeat-procedure-milliseconds>>
+
+(define expr
+  '(define (factorial n)
+     "hello"
+     '1
+     ''x
+     (define y 1)
+     (set! y 4)
+     (+ (* 2 y) 3)))
+
+(define (eval-analyzed expr env) (expr env))
+(define times (* 1000 1000))
+
+;<<eval-analyzed-test-start>>
+(let ([analyzed (analyze expr)])
+  (time-repeat-procedure-milliseconds times (lambda () (eval-analyzed analyzed global))))
+(time-repeat-procedure-milliseconds times (lambda () (eval expr global)))
+;<<eval-analyzed-test-end>>
+(define global (setup-environment))
+(time-repeat-procedure-milliseconds times (lambda () (eval expr global)))
+#+end_src
+
+#+RESULTS:
+: 47 ms: ok
+: 172 ms: ok
+: 62 ms: ok
 
 * Helper functions
 
