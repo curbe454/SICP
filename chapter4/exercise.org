@@ -47,7 +47,9 @@ Chapter 4: Metalinguistic Abstraction
        arguments
        (procedure-environment procedure)))]
     [else (error "Unknown procedure type -- APPLY" (list procedure arguments))]))
+#+end_src
 
+#+begin_src racket :noweb-ref eval-core-exp
 (define (list-of-values exprs env)
   (if (no-operands? exprs)
       '()
@@ -179,9 +181,8 @@ And this version evals from right to left:
 (define (no-operands? ops) (null? ops))
 (define first-operand car)
 (define rest-operands cdr)
-#+end_src
 
-#+begin_src racket :noweb-ref eval-core-exp :results none
+;; cond
 (define (cond? expr) (tagged-list? expr 'cond))
 (define cond-clauses cdr)
 (define (cond-predicate clause) (car clause))
@@ -814,7 +815,7 @@ Predicate:
             [(eq? var (car vars)) (car vals)]
             [else scan (cdr vars) (cdr vals)]))
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error "Unbound variable:" var)
         (let ([frame (first-frame env)])
           (scan (frame-variables frame)
                 (frame-values frame)))))
@@ -892,7 +893,7 @@ Scheme have a helpful builtin procedure `assv` to find record in an association 
 (define (lookup-variable-value var env)
   (define (env-loop env)
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error "Unbound variable:" var)
         (let ([record (assv var (first-frame env))])
           (if record
               (binding-value record)
@@ -922,7 +923,7 @@ As for `define-variable!` in Exercise 4.11, it's precise enough. For the `scan` 
 #+begin_src racket
 (define (search-to-do-with-the-binding env var f)
   (if (eq? env the-empty-environment)
-      (error "Unbound variable" var)
+      (error "Unbound variable:" var)
       (let ([record (assv (first-frame env))])
         (if record
             (f record)
@@ -1026,7 +1027,9 @@ I do not allow to unbound variables in enclosing environment, that may introduce
    (list 'cons cons) (list 'null? null?)
    (list 'list list) (list 'pair? pair?)
    (list '+ +) (list '- -) (list '* *) (list '/ /)
-   (list '= =)
+   (list '= =) (list '< <) (list '> >)
+   (list 'display display) (list 'newline newline) ; Exercise 4.30
+   (list 'eq? eq?) ; Exercise 4.34
    ))
 
 (define (primitive-procedure-names)
@@ -1314,7 +1317,7 @@ Just check the return value of the `env-loop`.
 (define (lookup-variable-value-check-unassigned var env)
   (define (env-loop env)
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error "Unbound variable:" var)
         (let ([record (assv var (first-frame env))])
           (if record
               (binding-value record)
@@ -1353,20 +1356,23 @@ In the intepreter, the procedure is expressed as a tagged list of structure `(<p
       (if (null? xs) acc
           (iter (cdr xs) (cons (car xs) acc))))
     (iter lst '()))
-  (define (iter rests acc-v acc-e)
+  (define (iter rests acc-v acc-e acc-b)
     ;; in r5rs, the last expr of a procedure body should not be a definition;
     ;; but I choose to return a '<void> simply
     (cond [(null? rests) (list (reversed acc-v) (reversed acc-e) ''<void>)]
           [(and (last-expr? rests)
                 (not (definition? (first-expr rests))))
-           (list (reversed acc-v) (reversed acc-e) (first-expr rests))]
+           (list (reversed acc-v) (reversed acc-e)
+                 (sequence->expr (reversed (cons (first-expr rests) acc-b))))]
           [(definition? (first-expr rests))
            (let ([def (first-expr rests)])
              (iter (cdr rests)
                    (cons (definition-variable def) acc-v)
-                   (cons (definition-value def) acc-e)))]
-          [else (iter (cdr rests) acc-v acc-e)]))
-  (let ([vars-vals-expr (iter proc-body '() '())])
+                   (cons (definition-value def) acc-e)
+                   acc-b))]
+          [else (iter (cdr rests) acc-v acc-e
+                      (cons (first-expr rests) acc-b))]))
+  (let ([vars-vals-expr (iter proc-body '() '() '())])
     (let ([vars (car vars-vals-expr)]
           [vals (cadr vars-vals-expr)]
           [expr (caddr vars-vals-expr)])
@@ -2001,6 +2007,941 @@ Let me see how much time it costs when combining analyzing and evaluating.
 : 47 ms: ok
 : 172 ms: ok
 : 62 ms: ok
+
+* 4.2 Variations on a Scheme -- Lazy Evaluation
+
+** 4.2.1 Normal Order and Applicative Order
+
+*** 4.25
+
+#+begin_src racket :results none
+(define (factorial n)
+  (unless (= n 1)
+          (* n (factorial (- n 1)))
+          1))
+#+end_src
+
+With applicative order, this runs into endless recusion. While it works well in normal order.
+
+*** 4.26
+
+Well, it's possible to implement the `unless` as a special form in applicative evaluating ordered language. Essentially, it's just a expand, and this needs the interpreter to support.
+
+#+begin_src racket :results none
+(define (unless? expr) (tagged-list? 'unless))
+(define unless-condition cadr)
+(define unless-usual caddr)
+(define unless-exceptional cadddr)
+(define (unless->if expr)
+  (make-if (unless-condition expr)
+           (unless-exceptional expr)
+           (unless-usual expr)))
+#+end_src
+
+Another implementation by scheme macro mechanism.
+
+#+NAME: unless-macro
+#+begin_src racket
+(define-syntax unless
+  (syntax-rules ()
+    ([_ condition usual exception]
+     (if condition exception usual))))
+
+(unless (> 1 2) 1 2)
+#+end_src
+
+#+RESULTS:
+: 1
+
+This special form cannot be used in conjunction with higher-order procedures.
+
+#+begin_src racket
+;<<unless-macro>>
+(map unless (list (list '(> 1 2) '1 '2)))
+#+end_src
+
+#+RESULTS:
+: c:\Users\asu\AppData\Local\Temp\org-babel-Wg0olZ.rkt:10:5: unless: bad syntax
+:   in: unless
+:   location...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-Wg0olZ.rkt:10:5
+
+** 4.2.2 An Interpreter with Lazy Evaluation
+
+*** exp
+
+#+begin_src racket :noweb-ref eval-lazy
+(define (actual-value expr env)
+  (force-it (eval-lazy expr env)))
+
+(define (eval-lazy expr env)
+  (cond
+    [(self-evaluating? expr) expr]
+    [(variable? expr) (lookup-variable-value expr env)]
+    [(quoted? expr) (text-of-quotation expr)]
+    [(assignment? expr) (eval-assignment expr env)]
+    [(definition? expr) (eval-definition expr env)]
+    [(lambda? expr)
+     (make-procedure (lambda-parameters expr)
+                     (scan-out-defines (lambda-body expr)) ; Exercise 4.16
+                     env)]
+    [(begin? expr)
+     (eval-sequence (begin-actions expr) env)]
+    [(if? expr) (eval-if-lazy expr env)]
+    [(cond? expr) (eval-lazy (cond->if expr) env)]
+    [(and? expr) (eval-and expr env)] ; and & or: Exercise 4.4
+    [(or? expr) (eval-or expr env)]
+    [(let? expr) (eval-lazy (let->combination expr) env)] ; let: Exercise 4.6
+    [(let*? expr) (eval-lazy (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+    [(letrec? expr) (eval-lazy (letrec->let expr) env)] ; letrec: Exercise 4.20
+    [(application? expr)
+     (apply-lazy (actual-value (operator expr) env) ;; CHANGED HERE
+                 (operands expr)
+                 env)]
+    [else (error "Unknown expression type -- EVAL" expr)]))
+
+(define (apply-lazy procedure arguments env)
+  (cond
+    [(primitive-procedure? procedure)
+     (apply-primitive-procedure
+      procedure
+      (list-of-arg-values arguments env))]
+    [(compound-procedure? procedure)
+     (eval-sequence
+      (procedure-body procedure)
+      (extend-environment
+       (procedure-parameters procedure)
+       (list-of-delayed-args arguments env)
+       (procedure-environment procedure)))]
+    [else (error "Unknown procedure type -- APPLY" (list procedure arguments))]))
+
+(define (list-of-arg-values exprs env)
+  (if (no-operands? exprs) '()
+      (cons (actual-value (first-operand exprs) env)
+            (list-of-arg-values (rest-operands exprs) env))))
+
+(define (list-of-delayed-args exprs env)
+  (if (no-operands? exprs) '()
+      (cons (delay-it (first-operand exprs) env)
+            (list-of-delayed-args (rest-operands exprs) env))))
+
+(define (eval-if-lazy expr env)
+  (if (true? (actual-value (if-predicate expr) env))
+      (eval-lazy (if-consequent expr) env)
+      (eval-lazy (if-alternative expr) env)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-lazy
+(define (force-it-exp obj)
+  (if (thunk? obj)
+      (actual-value (thunk-expr obj) (thunk-env obj))
+      obj))
+
+(define (delay-it expr env) (make-thunk expr env))
+
+(define (make-thunk expr env)
+  (list 'thunk expr env))
+(define (thunk? obj)
+  (tagged-list? obj 'thunk))
+(define thunk-expr cadr)
+(define thunk-env caddr)
+
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+(define (thunk-value evaluated-thunk) (cadr evaluated-thunk))
+
+(define (force-it obj)
+  (cond [(thunk? obj)
+         (let ([result (actual-value (thunk-expr obj) (thunk-env obj))])
+           (set-car! obj 'evaluated-thunk)
+           (set-car! (cdr obj) result)
+           (set-cdr! (cdr obj) '())
+           result)]
+        [(evaluated-thunk? obj) (thunk-value obj)]
+        [else obj]))
+#+end_src
+
+#+begin_src racket :noweb-ref repl-lazy
+(define input-prompt ";;; L-Eval input:")
+(define output-prompt ";;; L-Eval output:")
+
+(define (driver-loop)
+  (prompt-for-input input-prompt)
+  (let* ([input (read)]
+         [output (actual-value input the-global-environment)])
+    (announce-output output-prompt)
+    (user-print output))
+  (driver-loop))
+#+end_src
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define (eval-lazy-scope)
+  ;<<eval-lazy>>
+  (define global (setup-environment))
+  (define (eval-displayln expr env) (display (eval-lazy expr env)) (newline))
+  (eval-displayln '(define (try a b) (if (= a 0) 1 b)) global)
+  (eval-displayln '(try 0 (/ 1 0)) global)
+)
+(eval-lazy-scope)
+#+end_src
+
+#+RESULTS:
+: =: contract violation
+:   expected: number?
+:   given: (thunk 0 #0=(((try (procedure (a b) ((if (= a 0) 1 b)) #0#)) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<pro...
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-w84wCb.rkt:47:0: eval-if
+:    c:\Users\asu\AppData\Local\Temp\org-babel-w84wCb.rkt:462:2
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-w84wCb.rkt"
+: ok
+
+Hmm... It comes to a problem. The lazy `eval` depends on other procedures which denpends on outter `eval` which is not lazy. Use `set!` to cover the old `eval`.
+
+#+begin_src racket
+;<<eval-core-exp>>
+;<<eval-lazy>>
+(set! eval eval-lazy)
+(define global (setup-environment))
+
+(eval-lazy '(define (try a b) (if (= a 0) 1 b)) global)
+(eval-lazy '(try 0 (/ 1 0)) global)
+#+end_src
+
+#+RESULTS:
+: ok
+: 1
+
+#+begin_src racket :tangle "4.2.2-repl.rkt"
+;<<eval-core-exp>>
+;<<eval-lazy>>
+;<<repl-exp>>
+(set! eval eval-lazy)
+(define the-global-environment (setup-environment))
+(define (eval-lazy-repl-scope)
+  ;<<repl-lazy>>
+  (driver-loop)
+)
+(eval-lazy-repl-scope)
+#+end_src
+
+Results of `./4.2.2-repl.rkt`:
+
+#+begin_src log
+————— run 4.2.2-repl.rkt —————
+
+
+;;; L-Eval input:
+(define (try a b) (if (= a 0) 1 b))
+
+;;; L-Eval output:
+ok
+
+;;; L-Eval input:
+(try 0 (/ 1 0))
+
+;;; L-Eval output:
+1
+
+;;; L-Eval input:
+#+end_src
+
+#+begin_src racket :noweb-ref eval-lazy-test :results none
+;<<eval-core-exp>>
+;<<eval-lazy>>
+(set! eval eval-lazy)
+(define global (setup-environment))
+#+end_src
+
+*** 4.27
+
+Note that the REPL use `actual-value` directly to get result.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+(eval-lazy '(define count 0) global)
+(eval-lazy '(define (id x)
+              (set! count (+ count 1)) x) global)
+(eval-lazy '(define w (id (id 10))) global)
+
+(actual-value 'count global) ; => 0
+(actual-value 'w global)     ; => 10
+(actual-value 'count global) ; => 2
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: 1
+: 10
+: 2
+
+Well, it is not so lazy as I thought. The first evaluation of `count` is `1` means the `define` evaluates the out layer of executing the `id` proedure.
+
+When defining `w`, `eval-definition` calls `eval` on `(id (id 10))`. This makes `apply-lazy` apply the `id`, so the `count` is changed. And the `(id 10)` is wrapped to a thunk.
+
+*** 4.28
+
+When evaluating application, the value of operator is need, so it shouldn't be thunk.
+
+In Exercise 4.27, I know how to define a value which evaluates to be a thunk. Let me construct an example. Below example uses `eval-lazy` other than `actual-value`, which raise an error by applying a thunk with some arguments.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+(eval-lazy '(define (id x) x) global)
+(eval-lazy '(define add (id +)) global)
+
+(thunk? (eval-lazy 'add global))
+(define expr '(add 1 2))
+(apply-lazy (eval-lazy (operator expr) global)
+            (operands expr)
+            global)
+#+end_src
+
+#+RESULTS:
+: Unknown procedure type -- APPLY (#0=(thunk + #1=(((add #0#) (id (procedure (x) (x) #1#)) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedu...
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-BpSPhY.rkt"
+: ok
+: ok
+: #t
+
+*** 4.29
+
+Use `(set! force-it force-it-exp)` (see `force-it-exp` in above ***exp section) to use a version without memorization.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+(set! force-it force-it-exp)
+(eval-lazy '(define count 0) global)
+(eval-lazy '(define (id x)
+              (set! count (+ count 1)) x) global)
+(eval-lazy '(define (square x) (* x x)) global)
+
+(actual-value '(square (id 10)) global) ; => 100
+(actual-value 'count global) ; => 2
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: 100
+: 2
+
+The `count` increased twice because it evaluates the `(* (thunk (id 10) <the-env>) (thunk (id 10) <the-env>))`.
+
+*** 4.30
+
+**** a)
+
+#+begin_src racket
+;<<eval-lazy-test>>
+(eval-lazy '(define (for-each proc items)
+              (if (null? items) 'done
+                  (begin (proc (car items))
+                         (for-each proc (cdr items))))) global)
+(actual-value '(for-each (lambda (x) (newline) (display x))
+                         (list 57 321 88)) global)
+#+end_src
+
+#+RESULTS:
+: ok
+:
+: 57
+: 321
+: 88done
+
+The key point is whether `(proc (car items))` is evaluated lazily. When it applying the `proc` to the argument `(car items)`, the argument is delayed, but later it is evaluated by `eval-sequence`(in apply-lazy). Then `(car items)` is applied, but the `car` is primitive, it force the value to be evaluated. So it just a special example.
+
+There's some cases that the side effect do not take place in Python 3:
+
+#+begin_src python :results output
+map(print, [1, 2])       # this line don't print
+list(map(print, [1, 2]))
+#+end_src
+
+#+RESULTS:
+: 1
+: 2
+
+This is because the return value of `map` function in Python 3 is an iterator, or to say as a single-use stream. But the list function will consume the iterator to construct a non-lazy list.
+
+**** b)
+
+#+begin_src racket :results none :noweb-ref 4-30-exp
+(eval-lazy '(define (p1 x)
+              (set! x (cons x '(2)))
+              x) global)
+(eval-lazy '(define (p2 x)
+              (define (p e) e x)
+              (p (set! x (cons x '(2))))) global)
+
+(actual-value '(p1 1) global)
+(actual-value '(p2 1) global)
+#+end_src
+
+This example to be executed in approach in the book evaluates to `(<thunk of 1> 2)` and `<thunk of 1>` then forced to `(1 2)` and `1` by `actual-value`.
+
+Because the evaluator is lazy to force `(set! x (cons x '(2)))`.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+;<<4-30-exp>>
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: (1 2)
+: 1
+
+#+begin_src racket :results none :noweb-ref 4-30
+(define (eval-sequence-eagerer exps env)
+  (cond ((last-expr? exps) (eval (first-expr exps) env))
+        (else (actual-value (first-expr exps) env)      ; changed to `actual-value`
+              (eval-sequence (rest-exprs exps) env))))
+#+end_src
+
+With this new version, the result is more like which is executed by an applicative evaluator. They'll be `(1 2)` and `(1 2)`.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+;<<4-30>>
+(set! eval-sequence eval-sequence-eagerer)
+;<<4-30-exp>>
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: (1 2)
+: (1 2)
+
+**** c)
+
+In `a)` the `(car items)` is forced because the `car` is primitive. Execute this example in the new version of `eval-sequence` in `b)`, the `(car items)` should be forced by the implementation.
+
+**** d)
+
+Well, I don't like the way this evaluator takes with laziness. Like my example in Python 3 in `a)`, it's important to recognize conveniently whether the system evaluates lazily. Or just evaluating everything lazily, just like Haskell. This system takes me more consideration on "if it evaluates lazy", and I think this breaks the abstraction barrier, even introducing a more eager `eval-sequence`.
+
+*** 4.31
+
+#+begin_src racket
+(define-with-lazy (f a (b lazy) c (d lazy-memo))
+  ...)
+#+end_src
+
+Consider how to define the syntax with only variable:
+
+#+begin_src racket
+(define-with-lazy (f lazy) ...)
+#+end_src
+
+Note that this syntax can be explained as a normal procedure(like which defined by `define`) with name `f` and the arguments are `(lazy)`, but also can be explained as defining a variable `f` which is lazily evaluated with body `...`.
+
+To avoid this question, let me set the rule that the `define-with-lazy` cannot define a variable; all `define-with-lazy` define procedures. The form:
+
+#+begin_src
+(define-with-lazy <declaration> <value>)
+
+<declaration> ::= "(" + <procedure-name> + <variables-with-laziness-tags> ")"
+<variables-with-laziness-tags> ::= <variable> | "(" + <variable> + <laziness-tag> ")"
+<laziness-tag> ::= "lazy" | "lazy-memo"
+#+end_src
+
+#+begin_src racket :noweb-ref eval-lazy-tag
+(define (definition-with-lazy? expr)
+  (and (tagged-list? expr 'define-with-lazy)
+       (list? (cadr expr))))
+(define (make-definition-with-lazy declaration value)
+  (list 'define-with-lazy declaration value))
+(define definition-with-lazy-declaration cadr)
+(define definition-with-lazy-value caddr)
+
+(define declaration-procedure-name car)
+(define declaration-varialbes-with-tags cdr)
+
+(define (definition-with-lazy-name expr)
+  (declaration-procedure-name (definition-with-lazy-declaration expr)))
+(define (definition-with-lazy-variables-with-tags expr)
+  (declaration-varialbes-with-tags (definition-with-lazy-declaration expr)))
+
+(define (parameter-lazy? param)
+  (and (list? param) (list? (cdr param)) (eq? (cadr param) 'lazy)))
+(define (parameter-lazy-memo? param)
+  (and (list? param) (list? (cdr param)) (eq? (cadr param) 'lazy-memo)))
+
+(define (lazy-parameter-name param) (car param))
+(define (parameter-name param)
+  (if (list? param) (car param) param))
+(define (parameter-tag param)
+  (if (list? param) (cadr param) 'eager))
+#+end_src
+
+Consider the different force strategies of `lazy` and `lazy-memo`, new identifiers are need to distinguish them.
+
+#+begin_src racket :noweb-ref eval-lazy-tag
+(define (make-thunk expr env)
+  (list 'lazy expr env))
+(define (thunk? obj)
+  (tagged-list? obj 'lazy))
+(define (make-thunk-memo expr env)
+  (list 'lazy-memo expr env))
+(define (thunk-memo? obj)
+  (tagged-list? obj 'lazy-memo))
+
+(define thunk-expr cadr)
+(define thunk-env caddr)
+
+(define (delay-it expr env) (make-thunk expr env))
+(define (delay-it-memo expr env) (make-thunk-memo expr env))
+
+(define (evaluated-thunk? obj)
+  (tagged-list? obj 'evaluated-thunk))
+(define (thunk-value evaluated-thunk) (cadr evaluated-thunk))
+
+(define (force-it obj)
+  (cond [(thunk? obj)
+         (actual-value (thunk-expr obj) (thunk-env obj))]
+        [(thunk-memo? obj)
+         (let ([result (actual-value (thunk-expr obj) (thunk-env obj))])
+           (set-car! obj 'evaluated-thunk)
+           (set-car! (cdr obj) result)
+           (set-cdr! (cdr obj) '())
+           result)]
+        [(evaluated-thunk? obj) (thunk-value obj)]
+        [else obj]))
+
+(define (actual-value expr env)
+  (force-it (eval-lazy expr env)))
+#+end_src
+
+Well, it's strange. I come up with the expression of the thunks firstly, which is a lower abstraction layer.
+
+Let the `define-with-lazy` keeps the form of `variables-with-laziness-tags` so that the `apply-lazy` can see them.
+
+#+begin_src racket :noweb-ref eval-lazy-tag
+(define (eval-lazy expr env)
+  (cond
+    [(self-evaluating? expr) expr]
+    [(variable? expr) (lookup-variable-value expr env)]
+    [(quoted? expr) (text-of-quotation expr)]
+    [(assignment? expr) (eval-assignment expr env)]
+    [(definition? expr) (eval-definition expr env)]
+    [(definition-with-lazy? expr) (eval-definition expr env)] ; Exercise 4.31
+    [(lambda? expr)
+     (make-procedure (lambda-parameters expr)
+                     (scan-out-defines (lambda-body expr)) ; Exercise 4.16
+                     env)]
+    [(begin? expr)
+     (eval-sequence (begin-actions expr) env)]
+    [(if? expr) (eval-if-lazy expr env)]
+    [(cond? expr) (eval-lazy (cond->if expr) env)]
+    [(and? expr) (eval-and expr env)] ; and & or: Exercise 4.4
+    [(or? expr) (eval-or expr env)]
+    [(let? expr) (eval-lazy (let->combination expr) env)] ; let: Exercise 4.6
+    [(let*? expr) (eval-lazy (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+    [(letrec? expr) (eval-lazy (letrec->let expr) env)] ; letrec: Exercise 4.20
+    [(application? expr)
+     (apply-lazy (actual-value (operator expr) env) ;; CHANGED HERE
+                 (operands expr)
+                 env)]
+    [else (error "Unknown expression type -- EVAL" expr)]))
+
+(define (apply-lazy procedure arguments env)
+  (cond
+    [(primitive-procedure? procedure)
+     (apply-primitive-procedure
+      procedure
+      (list-of-arg-values arguments env))]
+    [(compound-procedure? procedure)
+     (eval-sequence
+      (procedure-body procedure)
+      (extend-environment
+       (map parameter-name (procedure-parameters procedure))
+       (list-of-delayed-args arguments
+                             (map parameter-tag (procedure-parameters procedure)) env)
+       (procedure-environment procedure)))]
+    [else (error "Unknown procedure type -- APPLY" (list procedure arguments))]))
+#+end_src
+
+The `define-with-lazy` and `define` have same strucutre, so I use the `eval-definition` to eval. But the parameters saved the laziness identifiers, so I need to extract parameter names by `argument-name`.
+
+All procedures defined by `define-with-lazy` are compound procedure, and every lazy evaluation is dispatched to other procedures.
+
+#+begin_src racket :noweb-ref eval-lazy-tag
+(define (list-of-arg-values args env)
+  (if (no-operands? args) '()
+      (cons (actual-value (first-operand args) env)
+            (list-of-arg-values (rest-operands args) env))))
+
+(define (list-of-delayed-args args lazy-tags env)
+  (define (delay-arg arg tag env)
+    (cond [(eq? tag 'lazy)
+           (delay-it arg env)]
+          [(eq? tag 'lazy-memo)
+           (delay-it-memo arg env)]
+          [else (actual-value arg env)]))
+  (if (no-operands? args) '()
+      (cons (delay-arg (first-operand args) (car lazy-tags) env)
+            (list-of-delayed-args (rest-operands args) (cdr lazy-tags) env))))
+
+(define (eval-if-lazy expr env)
+  (if (true? (actual-value (if-predicate expr) env))
+      (eval-lazy (if-consequent expr) env)
+      (eval-lazy (if-alternative expr) env)))
+#+end_src
+
+Only to change `list-of-delayed-args`, this is because there're two type of lazy.
+
+#+begin_src racket :noweb-ref eval-lazy-tag
+;<<eval-core-exp>>
+(set! eval eval-lazy)
+#+end_src
+
+#+begin_src racket
+;<<eval-lazy-tag>>
+(define global (setup-environment))
+(map (lambda (expr) (eval-lazy expr global))
+     (list '(define count 0)
+           '(define (id (x lazy-memo))
+              (set! count (+ count 1)) x)
+           '(define w (id (id 10)))))
+
+(actual-value 'count global) ; => 1
+(actual-value 'w global)     ; => 10
+(actual-value 'count global) ; => 2
+
+(newline)
+
+(map (lambda (expr) (eval-lazy expr global))
+     (list '(define (square x) (* x x))
+           '(define (square-lazy (x lazy)) (* x x))
+           '(define (id-display x) (display x) x)))
+(actual-value '(square (id-display 2)) global)
+(actual-value '(square-lazy (id-display 2)) global) ; prints 2 twice
+#+end_src
+
+#+RESULTS:
+: (ok ok ok)
+: 1
+: 10
+: 2
+:
+: (ok ok ok)
+: 24
+: 224
+
+** 4.2.3 Streams as Lazy Lists
+
+*** exp
+
+The evaluator allow redefininition because of the `define-variable!` implementation.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+(eval-lazy '(define (cons x y)
+              (lambda (m) (m x y))) global)
+(eval-lazy '(define cons 1) global)
+global
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: (((false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons 1) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>))))
+
+#+begin_src racket :noweb-ref lazy-list-defs
+(define lazy-list-defs
+  (list '(define (cons x y)
+           (lambda (m) (m x y)))
+        '(define (car z)
+           (z (lambda (x y) x)))
+        '(define (cdr z)
+           (z (lambda (x y) y)))
+        '(define (list-ref items n)
+           (if (= n 0)
+               (car items)
+               (list-ref (cdr items) (- n 1))))
+        '(define (map f items)
+           (if (null? items) '()
+               (cons (f (car items))
+                     (map f (cdr items)))))
+        '(define (scale-list items factor)
+           (map (lambda (x) (* x factor)) items))
+        '(define (add-lists xs ys)
+           (cond [(null? xs) ys]
+                 [(null? ys) xs]
+                 [else (cons (+ (car xs) (car ys))
+                             (add-lists (cdr xs) (cdr ys)))]))
+        '(define ones (cons 1 ones))
+        '(define integers (cons 1 (add-lists ones integers)))
+        ))
+#+end_src
+
+#+begin_src racket :noweb-ref lazy-list
+;<<eval-lazy-test>>
+;<<lazy-list-defs>>
+(map (lambda (expr) (eval-lazy expr global)) lazy-list-defs)
+#+end_src
+
+#+begin_src racket
+;<<lazy-list>>
+(eval-lazy '(car integers) global)
+(actual-value '(list-ref integers 17) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok)
+: (thunk x (((m (evaluated-thunk (procedure #4=(x y) #5=(x) (((z (evaluated-thunk #0=(procedure #1=(m) #2=((m x y)) #6=(((x (thunk 1 #3=(((integers #0#) (ones (procedure #1# #2# (((x (thunk 1 #3#)) (y (thunk ones #3#))) . #3#))) (add-lists (procedure (xs ys) ((cond ((null? xs) ys) ((null? ys) xs) (else (cons (+ (car xs) (car ys)) (add-lists (cdr xs) (cdr ys)))))) #3#)) (scale-list (procedure (items factor) ((map (lambda (x) (* x factor)) items)) #3#)) (map (procedure (f items) ((if (null? items) (quote ()) (cons (f (car items)) (map f (cdr items))))) #3#)) (list-ref (procedure (items n) ((if (= n 0) (car items) (list-ref (cdr items) (- n 1)))) #3#)) (false #f) (true #t) (car (procedure (z) ((z (lambda #4# . #5#))) #3#)) (cdr (procedure (z) ((z (lambda (x y) y))) #3#)) (cons (procedure (x y) ((lambda #1# . #2#)) #3#)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (< (primitive #<procedure:<>)) (> (primitive #<procedure:>>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>)))))) (y (thunk (add-lists ones integers) #3#))) . #3#))))) . #3#))))) . #6#))
+: 18
+
+#+begin_src racket
+;<<lazy-list>>
+(map (lambda (expr) (eval-lazy expr global))
+     (list '(define (integral integrand initial-value dt)
+              (define int
+                (cons initial-value
+                      (add-lists (scale-list integrand dt)
+                                 int)))
+              int)
+           '(define (solve f y0 dt)
+              (define y (integral dy y0 dt))
+              (define dy (map f y))
+              y)
+           ))
+(actual-value '(list-ref (solve (lambda (x) x) 1 0.001) 1000) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok)
+: (ok ok)
+: 2.716923932235896
+
+*** 4.32
+
+Not only the structure is lazy, but also the value of element is delayed. By the book I know they may from the same mechamism, but are two different application of delay.
+
+#+begin_src racket
+;<<lazy-list>>
+(eval-lazy 'integers global)
+(eval-lazy '(car integers) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok)
+: #0=(procedure #1=(m) #2=((m x y)) (((x (thunk 1 #3=(((integers #0#) (ones (procedure #1# #2# (((x (thunk 1 #3#)) (y (thunk ones #3#))) . #3#))) (add-lists (procedure (xs ys) ((cond ((null? xs) ys) ((null? ys) xs) (else (cons (+ (car xs) (car ys)) (add-lists (cdr xs) (cdr ys)))))) #3#)) (scale-list (procedure (items factor) ((map (lambda (x) (* x factor)) items)) #3#)) (map (procedure (f items) ((if (null? items) (quote ()) (cons (f (car items)) (map f (cdr items))))) #3#)) (list-ref (procedure (items n) ((if (= n 0) (car items) (list-ref (cdr items) (- n 1)))) #3#)) (false #f) (true #t) (car (procedure (z) ((z (lambda (x y) x))) #3#)) (cdr (procedure (z) ((z (lambda (x y) y))) #3#)) (cons (procedure (x y) ((lambda #1# . #2#)) #3#)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (< (primitive #<procedure:<>)) (> (primitive #<procedure:>>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>)))))) (y (thunk (add-lists ones integers) #3#))) . #3#))
+: (thunk x (((m (evaluated-thunk (procedure #4=(x y) #5=(x) (((z (evaluated-thunk #0=(procedure #1=(m) #2=((m x y)) #6=(((x (thunk 1 #3=(((integers #0#) (ones (procedure #1# #2# (((x (thunk 1 #3#)) (y (thunk ones #3#))) . #3#))) (add-lists (procedure (xs ys) ((cond ((null? xs) ys) ((null? ys) xs) (else (cons (+ (car xs) (car ys)) (add-lists (cdr xs) (cdr ys)))))) #3#)) (scale-list (procedure (items factor) ((map (lambda (x) (* x factor)) items)) #3#)) (map (procedure (f items) ((if (null? items) (quote ()) (cons (f (car items)) (map f (cdr items))))) #3#)) (list-ref (procedure (items n) ((if (= n 0) (car items) (list-ref (cdr items) (- n 1)))) #3#)) (false #f) (true #t) (car (procedure (z) ((z (lambda #4# . #5#))) #3#)) (cdr (procedure (z) ((z (lambda (x y) y))) #3#)) (cons (procedure (x y) ((lambda #1# . #2#)) #3#)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (< (primitive #<procedure:<>)) (> (primitive #<procedure:>>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>)))))) (y (thunk (add-lists ones integers) #3#))) . #3#))))) . #3#))))) . #6#))
+
+To get the length of a finite stream, there'is no need to compute the actual value of elements.
+
+#+begin_src racket
+;<<lazy-list>>
+(eval-lazy '(define (length lst)
+              (define (iter xs acc)
+                (if (null? xs) acc
+                    (iter (cdr xs) (+ acc 1))))
+              (iter lst 0)) global)
+(actual-value '(length (cons 1 (cons (/ 1 0) '()))) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok)
+: ok
+: 2
+
+*** 4.33
+
+#+begin_src racket
+;<<lazy-list>>
+(eval-lazy '(car '(a b c)) global)
+#+end_src
+
+#+RESULTS:
+: Unknown procedure type -- APPLY ((a b c) ((lambda (x y) x)))
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-dMNvh0.rkt"
+: (ok ok ok ok ok ok ok ok ok ok)
+
+This is because the evaluator regard `'` as a `quote`.
+
+#+begin_src racket
+;<<eval-core-exp>>
+(define (x expr) (quoted? expr))
+(x ''(a b c))
+#+end_src
+
+#+RESULTS:
+: #t
+
+So change the `eval-lazy`, make the branch handling the quoted expr to use `cons` to reconstruct the list.
+
+#+begin_src racket :noweb-ref 4-33
+(define (make-quote expr)
+  (list 'quote expr))
+
+(define (eval-lazy-4-33 expr env)
+  (define (reconstruct-list-dynamically expr)
+    ;<<fold>>
+    (cond [(not (list? expr)) expr]
+          [(null? expr) expr]
+          [else (eval-lazy-4-33
+                 (fold-right (lambda (x acc)
+                               (cons 'cons (cons (make-quote x) (list acc))))
+                             expr '()) env)]))
+  (cond
+    [(null? expr) expr]
+    [(self-evaluating? expr) expr]
+    [(variable? expr) (lookup-variable-value expr env)]
+    [(quoted? expr) (reconstruct-list-dynamically (text-of-quotation expr))]           ;; CHANGED HERE
+    [(assignment? expr) (eval-assignment expr env)]
+    [(definition? expr) (eval-definition expr env)]
+    [(lambda? expr)
+     (make-procedure (lambda-parameters expr)
+                     (scan-out-defines (lambda-body expr)) ; Exercise 4.16
+                     env)]
+    [(begin? expr)
+     (eval-sequence (begin-actions expr) env)]
+    [(if? expr) (eval-if-lazy expr env)]
+    [(cond? expr) (eval-lazy (cond->if expr) env)]
+    [(and? expr) (eval-and expr env)] ; and & or: Exercise 4.4
+    [(or? expr) (eval-or expr env)]
+    [(let? expr) (eval-lazy (let->combination expr) env)] ; let: Exercise 4.6
+    [(let*? expr) (eval-lazy (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+    [(letrec? expr) (eval-lazy (letrec->let expr) env)] ; letrec: Exercise 4.20
+    [(application? expr)
+     (apply-lazy (actual-value (operator expr) env)
+                 (operands expr)
+                 env)]
+    [else (error "Unknown expression type -- EVAL" expr)]))
+#+end_src
+
+#+begin_src racket :noweb-ref lazy-list-quote
+;<<lazy-list>>
+;<<4-33>>
+(set! eval eval-lazy-4-33)
+(set! eval-lazy eval-lazy-4-33)
+#+end_src
+
+#+begin_src racket
+;<<lazy-list-quote>>
+(actual-value '(car '(a b c)) global)
+(actual-value '(car (cdr '(a b c))) global)
+(actual-value '(list-ref '(a b c) 2) global)
+(eval-lazy ''(a b c) global)
+(actual-value ''() global)
+(actual-value '(cdr '(a)) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok)
+: a
+: b
+: c
+: (procedure #0=(m) #1=((m x y)) (((x (thunk (quote a) #2=(((integers (procedure #0# #1# (((x (thunk 1 #2#)) (y (thunk (add-lists ones integers) #2#))) . #2#))) (ones (procedure #0# #1# (((x (thunk 1 #2#)) (y (thunk ones #2#))) . #2#))) (add-lists (procedure (xs ys) ((cond ((null? xs) ys) ((null? ys) xs) (else (cons (+ (car xs) (car ys)) (add-lists (cdr xs) (cdr ys)))))) #2#)) (scale-list (procedure (items factor) ((map (lambda (x) (* x factor)) items)) #2#)) (map (procedure (f items) ((if (null? items) (quote ()) (cons (f (car items)) (map f (cdr items))))) #2#)) (list-ref (procedure (items n) ((if (= n 0) (car items) (list-ref (cdr items) (- n 1)))) #2#)) (false #f) (true #t) (car (procedure (z) ((z (lambda (x y) x))) #2#)) (cdr (procedure (z) ((z (lambda (x y) y))) #2#)) (cons (procedure (x y) ((lambda #0# . #1#)) #2#)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (< (primitive #<procedure:<>)) (> (primitive #<procedure:>>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>)))))) (y (thunk (cons (quote b) (cons (quote c) ())) #2#))) . #2#))
+: ()
+: ()
+
+*** 4.33
+
+When the lazy list is not forced to evalute, the REPL should not print the forced value of its items. I'd like to use the "thunk" tag to express them.
+
+#+begin_src racket
+;<<eval-lazy-test>>
+
+(define lazy-list-defs
+  (list '(define the-empty-lazy-list
+           (cons '() 'lazy-pair))
+        '(define (lcons x y)
+           (cons 'lazy-pair (lambda (m) (m x y))))
+        '(define (lcar z)
+           ((cdr z) (lambda (x y) x)))
+        '(define (lcdr z)
+           ((cdr z) (lambda (x y) y)))
+        '(define (lend? lpair)
+           (and (pair? lpair) (null? (car lpair)) (eq? (cdr lpair) 'lazy-pair)))
+        '(define (lpair? z)
+           (and (pair? z) (eq? (car z) 'lazy-pair)))
+        '(define (list->llist xs)
+           (if (null? xs) the-empty-lazy-list
+               (lcons (car xs) (list->llist (cdr xs)))))
+        '(define (llist->list xs)
+           (if (lend? xs) '()
+               (cons (lcar xs) (llist->list (lcdr xs)))))
+
+        '(define (llist-take xs n)
+           (if (= n 0) '()
+               (cons (lcar xs) (llist-take (lcdr xs) (- n 1)))))
+
+        '(define (llist-print-n lst n)
+           (define (iter xs i)
+             (cond [(< i 1) '()]
+                   [(= i 1) (display (car xs)) (display ")")]
+                   [else (display (car xs)) (display " ")
+                         (iter (cdr xs) (- i 1))]))
+           (display "(")
+           (iter lst n))
+
+        '(define ones (lcons 1 ones))
+        ))
+(map (lambda (expr) (eval-lazy expr global)) lazy-list-defs)
+
+(define (format-thunk thunk)
+  (list 'thunk (thunk-expr thunk)))
+
+(define (format-output x env)
+  (define (lazy-pair? x)
+    (and (list? x) (eq? (car x) 'lazy-pair)))
+  (if (lazy-pair? x)
+      (format-lazy-pairs x env)
+      x))
+
+(define (format-lazy-pairs lst env)
+  (define (iter xs i)
+    (cond [(actual-value (list 'lend? (list 'quote xs)) env) '()]
+          [(>= i 50) '...]
+          [else
+           (cons (format-thunk
+                  (eval-lazy (list 'lcar (list 'quote xs)) env))
+                 (iter
+                  (actual-value (list 'lcdr (list 'quote xs)) env) (+ i 1))
+                 )]))
+  (cons 'lazy-list (iter lst 1)))
+
+(actual-value '(list->llist '(a b c)) global)
+(actual-value '(lend? (lcdr (lcons 'a the-empty-lazy-list))) global)
+
+(format-output (actual-value '(lcons 'a the-empty-lazy-list) global) global)
+(format-output (actual-value '(lcons 'b (lcons 'a the-empty-lazy-list)) global) global)
+(format-output (actual-value '(list->llist '(a b c)) global) global)
+(format-output (actual-value '(llist->list (list->llist '(a b c))) global) global)
+(format-output (actual-value 'ones global) global)
+(format-output (actual-value '(llist-take ones 4) global) global)
+#+end_src
+
+#+RESULTS:
+: (ok ok ok ok ok ok ok ok ok ok ok)
+: (lazy-pair procedure #0=(m) #1=((m x y)) (((x (thunk #3=(car xs) #5=(((xs (evaluated-thunk (a b c)))) . #2=(((ones (lazy-pair procedure #0# #1# (((x (thunk 1 #2#)) (y (thunk ones #2#))) . #2#))) (llist-print-n (procedure (lst n) ((let ((iter (quote *unassigned*))) (begin (set! iter (lambda (xs i) (cond ((< i 1) (quote ())) ((= i 1) (display (car xs)) (display ")")) (else (display (car xs)) (display " ") (iter (cdr xs) (- i 1)))))) (begin (display "(") (iter lst n))))) #2#)) (llist-take (procedure (xs n) ((if (= n 0) (quote ()) (cons (lcar xs) (llist-take (lcdr xs) (- n 1))))) #2#)) (llist->list (procedure (xs) ((if (lend? xs) (quote ()) (cons (lcar xs) (llist->list (lcdr xs))))) #2#)) (list->llist (procedure (xs) ((if (null? xs) the-empty-lazy-list (lcons #3# #4=(list->llist (cdr xs))))) #2#)) (lpair? (procedure (z) ((and (pair? z) (eq? (car z) (quote lazy-pair)))) #2#)) (lend? (procedure (lpair) ((and (pair? lpair) (null? (car lpair)) (eq? (cdr lpair) (quote lazy-pair)))) #2#)) (lcdr (procedure (z) (((cdr z) (lambda (x y) y))) #2#)) (lcar (procedure (z) (((cdr z) (lambda (x y) x))) #2#)) (lcons (procedure (x y) ((cons (quote lazy-pair) (lambda #0# . #1#))) #2#)) (the-empty-lazy-list (() . lazy-pair)) (false #f) (true #t) (car (primitive #<procedure:mcar>)) (cdr (primitive #<procedure:mcdr>)) (cons (primitive #<procedure:mcons>)) (null? (primitive #<procedure:null?>)) (list (primitive #<procedure:mlist>)) (pair? (primitive #<procedure:mpair?>)) (+ (primitive #<procedure:+>)) (- (primitive #<procedure:->)) (* (primitive #<procedure:*>)) (/ (primitive #<procedure:/>)) (= (primitive #<procedure:=>)) (< (primitive #<procedure:<>)) (> (primitive #<procedure:>>)) (display (primitive #<procedure:mdisplay>)) (newline (primitive #<procedure:newline>)) (eq? (primitive #<procedure:eq?>))))))) (y (thunk #4# #5#))) . #2#))
+: #t
+: (lazy-list (thunk x))
+: (lazy-list (thunk x) (thunk x))
+: (lazy-list (thunk x) (thunk x) (thunk x))
+: (a b c)
+: (lazy-list (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) . ...)
+: (1 1 1 1)
+
+#+begin_src racket :lang racket
+(define ones (stream-cons 1 ones))
+(stream-take ones 5)
+(stream->list (stream-take ones 5))
+#+end_src
+
+#+RESULTS:
+: #<stream>
+: '(1 1 1 1 1)
 
 * Helper functions
 
