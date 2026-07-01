@@ -961,7 +961,7 @@ nil
 
 ** 3.25, 3.26
 
-It's kind of difficult to combine these two. Better to image the data structure clearly.
+It's kind of difficult to combine these two. Better to imagine the data structure clearly.
 
 A record is like src_racket[:exports code]{(cons k v)}, and association list is like src_racket[:exports code]{(list (cons k1 v1) (cons k2 v2) ...)}. Replace data structure to tree, it's like src_racket[:exports code]{(tree (cons k1 v2) (cons k2 v2) ...)}.
 
@@ -1276,7 +1276,7 @@ The old `fib` is tree recursively computed, while the memorized fib is iterative
 
 First, I realized that `a or b = not (both_zero a b) = not ((not a) and (not b))`, so I can use not-gate and and-gate to implement or-gate.
 
-Then, it comes again to my favourite contents to image an API of an abstruaction layer. I image a src_racket[:exports code]{(define (make-delay delay-proc) ...)}, and the or-gate in this implementation should wait the not-gate firstly, and and-gate secondly, and not-gate finally.
+Then, it comes again to my favourite contents to imagine an API of an abstruaction layer. I imagine a src_racket[:exports code]{(define (make-delay delay-proc) ...)}, and the or-gate in this implementation should wait the not-gate firstly, and and-gate secondly, and not-gate finally.
 
 #+begin_src racket :results none
 (define (or-gate a b out)
@@ -2574,7 +2574,7 @@ Anothet thing to concern is that the `make-id-generator` is not implemented to b
 *** 3.49
 
 This question is hard and I really don't know how to design a case which deadlock inevitable by any solution.
-If this question only means to image a situation that the id method will failure, there's a example: in a certain time, to exchange balance of one certain account with the account have greatest balance; execute this by multiple processes parallelly. While this can be solved by use `big lock` to all accounts.
+If this question only means to imagine a situation that the id method will failure, there's a example: in a certain time, to exchange balance of one certain account with the account have greatest balance; execute this by multiple processes parallelly. While this can be solved by use `big lock` to all accounts.
 
 *  3.5 Streams
 
@@ -3468,7 +3468,7 @@ The key to do this is to compress two numbers in the pair into one dimention, an
 
 (Since I learned about the `define-syntax` by implementing the `cons-stream`, I know how to make use of the macro functionalities... Let me try parial argument application!!!)
 
-For $z = 2x + 3y + 5xy$, it's hard to image there's a mountain that the line of it's ridge leans to y axis more... So I add the value of the pair in the test codes.
+For $z = 2x + 3y + 5xy$, it's hard to imagine there's a mountain that the line of it's ridge leans to y axis more... So I add the value of the pair in the test codes.
 
 #+begin_src racket :noweb yes :results output
 ;<<stream>>
