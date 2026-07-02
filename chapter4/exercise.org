@@ -1877,6 +1877,19 @@ In this case the two version analyze to the same result.
 
 *** 4.24
 
+**** introspection
+
+I forgot that there is a procedure `runtime` in `#lang sicp`.
+
+#+begin_src racket
+(runtime)
+#+end_src
+
+#+RESULTS:
+: 1782906067715236
+
+**** answer
+
 In racket language, there's some procedures which can be used to count time. I went to learn how to use `#%require` in racket `#lang sicp`. https://docs.racket-lang.org/reference/require.html#%28form._%28%28quote._~23~25kernel%29._~23~25require%29%29
 
 #+begin_src racket
@@ -2933,15 +2946,1033 @@ When the lazy list is not forced to evalute, the REPL should not print the force
 : (lazy-list (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) (thunk x) . ...)
 : (1 1 1 1)
 
+Some examples in Racket language.
+
 #+begin_src racket :lang racket
 (define ones (stream-cons 1 ones))
+(define ones-delayed (stream-cons (delay 1) ones-delayed))
+
 (stream-take ones 5)
 (stream->list (stream-take ones 5))
+
+(stream->list (stream-take ones-delayed 5))
+(map force (stream->list (stream-take ones-delayed 5)))
 #+end_src
 
 #+RESULTS:
 : #<stream>
 : '(1 1 1 1 1)
+: '(#<promise:...org-babel-Tzq1hC.rkt:5:34> #<promise:...org-babel-Tzq1hC.rkt:5:34> #<promise:...org-babel-Tzq1hC.rkt:5:34> #<promise:...org-babel-Tzq1hC.rkt:5:34> #<promise:...org-babel-Tzq1hC.rkt:5:34>)
+: '(1 1 1 1 1)
+
+* 4.3 Variations on a Scheme -- Nondeterministic Computing
+
+*** exp
+
+`amb` syntax is defined in `#lang sicp` in Racket package.
+
+#+begin_src racket
+(list (amb 1 2 3) (amb 'a 'b))
+#+end_src
+
+#+RESULTS:
+: (1 a)
+
+#+begin_src racket
+(amb 1 2 3)
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-XlsVa5.rkt"
+: 1
+: 2
+: 3
+
+This is not good that the amb raise an error when search is done exhaustively. I will try to handle it then.
+
+#+begin_src racket :noweb-ref prime-sum-pair
+(define (prime-sum-pair as bs)
+  (let ([a (an-element-of as)]
+        [b (an-element-of bs)])
+    (require (prime? (+ a b)))
+    (list a b)))
+
+;<<amb-sicp>>
+;<<an-element-of>>
+
+(define (prime? x)
+  (define (iter i)
+    (cond [(> (floor (* i i)) x) #t]
+          [(= (modulo x i) 0) #f]
+          [else (iter (+ i 1))]))
+  (if (or (and (not (= x 2)) (even? x))
+          (= x 1)) #f
+      (iter 3)))
+#+end_src
+
+#+begin_src racket
+;<<prime-sum-pair>>
+
+(prime-sum-pair '(1 3 5 8) '(20 35 110))
+#+end_src
+
+#+RESULTS:
+: (3 20)
+
+** 4.3.1 Amb and Search
+
+*** exp
+
+#+begin_src racket :noweb-ref amb-sicp
+(define (require p)
+  (if (not p) (amb)))
+#+end_src
+
+#+begin_src racket :noweb-ref an-element-of
+(define (an-element-of items)
+  (require (not (null? items)))
+  (amb (car items) (an-element-of (cdr items))))
+#+end_src
+
+#+begin_src racket :noweb-ref an-integer-starting-from
+(define (an-integer-starting-from n)
+  (amb n (an-integer-starting-from (+ n 1))))
+#+end_src
+
+#+begin_src racket
+;<<prime-sum-pair>>
+(prime-sum-pair '(1 3 5 8) '(20 35 110))
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-Dljd9b.rkt:4:0: prime-sum-pair
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-Dljd9b.rkt"
+: (3 20)
+: (3 110)
+: (8 35)
+
+*** try to handle amb error in `#lang sicp`
+
+According to https://github.com/sicp-lang/sicp/blob/master/sicp/main.rkt, the `amb` will raise an `error` when search is end, and the `error` procedure is provide from `racket/base`. I should use some procedure to handle the error.
+
+But it turns out that any procedure which once called `(amb)` won't do anything.
+
+#+begin_src racket
+(#%require (only racket with-handlers exn:fail?))
+
+(define (amb-next-not-raise)
+  (with-handlers ([exn:fail? identity])
+    (amb)))
+(define (amb-exaustively)
+  (with-handlers ([exn:fail? identity])
+    (amb)
+    (amb-exaustively)))
+
+(define (example)
+  (display 'exp) (newline)
+  (amb)
+  (display 'exp) (newline)
+  (amb)
+  )
+
+(amb 1 2 3 4)
+(example)
+#+end_src
+
+#+RESULTS:
+: 1
+: exp
+: 2
+
+*** 4.35
+
+#+begin_src racket :noweb-ref an-integer-between
+(define (an-integer-between low high)
+  (require (<= low high))
+  (amb low (an-integer-between (+ low 1) high)))
+#+end_src
+
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<an-integer-between>>
+(define (a-pythagorean-triple-between low high)
+  (let* ([i (an-integer-between low high)]
+         [j (an-integer-between i high)]
+         [k (an-integer-between j high)])
+    (require (= (+ (* i i) (* j j)) (* k k)))
+    (list i j k)))
+
+(a-pythagorean-triple-between 1 5)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-uD53Q2.rkt:9:0: a-pythagorean-triple-between
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-uD53Q2.rkt"
+: (3 4 5)
+
+*** 4.36
+
+If `(amb)` use DFS as the search strategy, simply replacing the `an-integer-between` to `an-integer-starting-from` will leads `(amb)` stick to endless path without any available result. Let me try to verify.
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<an-integer-starting-from>>
+(define (pythagorean-triples-from low)
+  (let* ([i (an-integer-starting-from low)]
+         [j (an-integer-starting-from i)]
+         [k (an-integer-starting-from j)])
+    (if (> (max i j k)
+           (* (min i j k) 1000))
+        (begin (display (list i j k))
+               (error 'endless-unavailable-path)))
+    (require (= (+ (* i i) (* j j)) (* k k)))
+    (list i j k)))
+
+(pythagorean-triples-from 1)
+#+end_src
+
+#+RESULTS:
+: error: endless-unavailable-path
+:   context...:
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-PiM7xI.rkt"
+: (1 1 1001)
+
+Enumerate k first, so that amb can find proper i and j in a finite range.
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<an-integer-between>>
+;<<an-integer-starting-from>>
+(define (pythagorean-triples-from low)
+  (let* ([k (an-integer-starting-from low)]
+         [i (an-integer-between low k)]
+         [j (an-integer-between i k)])
+    (require (= (+ (* i i) (* j j)) (* k k)))
+    (list i j k)))
+
+(pythagorean-triples-from 1)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: (3 4 5)
+: (6 8 10)
+: (5 12 13)
+: (9 12 15)
+: (8 15 17)
+: (12 16 20)
+
+*** 4.37
+
+This makes use of the equvalance relation to reduce inner loop (enumeration of `k`s), and pruning impossible branch `(>= hsq ksq)` of search to improve effeciency.
+
+#+begin_src racket
+(define (a-pythagorean-triple-between low high)
+  (let ((i (an-integer-between low high))
+        (hsq (* high high)))
+    (let ((j (an-integer-between i high)))
+      (let ((ksq (+ (* i i) (* j j))))
+        (require (>= hsq ksq))
+        (let ((k (sqrt ksq)))
+          (require (integer? k))
+          (list i j k))))))
+#+end_src
+
+** 4.3.2 Examples of Nondeterministic Programs
+
+*** exp: Logic Puzzles
+
+#+begin_src racket :noweb-ref distinct?
+(define (distinct? items)
+  (cond ((null? items) true)
+        ((null? (cdr items)) true)
+        ((member (car items) (cdr items)) false)
+        (else (distinct? (cdr items)))))
+#+end_src
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<distinct?>>
+
+(define (multiple-dwelling)
+  (let ([baker (amb 1 2 3 4 5)]
+        [cooper (amb 1 2 3 4 5)]
+        [fletcher (amb 1 2 3 4 5)]
+        [miller (amb 1 2 3 4 5)]
+        [smith (amb 1 2 3 4 5)])
+    (require (distinct? (list baker cooper fletcher miller smith)))
+    (require (not (= baker 5)))
+    (require (not (= cooper 1)))
+    (require (not (= fletcher 5)))
+    (require (not (= fletcher 1)))
+    (require (> miller cooper))
+    (require (not (= (abs (- smith fletcher)) 1)))
+    (require (not (= (abs (- fletcher cooper)) 1)))
+    (list 'baker baker
+          'cooper cooper
+          'fletcher fletcher
+          'miller miller
+          'smith smith)))
+
+(multiple-dwelling)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-h2Fk2o.rkt:12:0: multiple-dwelling
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-h2Fk2o.rkt"
+: (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+
+There is only one solution.
+
+*** 4.38
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<distinct?>>
+(define (multiple-dwelling)
+  (let ([baker (amb 1 2 3 4 5)]
+        [cooper (amb 1 2 3 4 5)]
+        [fletcher (amb 1 2 3 4 5)]
+        [miller (amb 1 2 3 4 5)]
+        [smith (amb 1 2 3 4 5)])
+    (require (distinct? (list baker cooper fletcher miller smith)))
+    (require (not (= baker 5)))
+    (require (not (= cooper 1)))
+    (require (not (= fletcher 5)))
+    (require (not (= fletcher 1)))
+    (require (> miller cooper))
+    ;(require (not (= (abs (- smith fletcher)) 1)))
+    (require (not (= (abs (- fletcher cooper)) 1)))
+    (list 'baker baker
+          'cooper cooper
+          'fletcher fletcher
+          'miller miller
+          'smith smith)))
+
+(multiple-dwelling)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-DoJ9dw.rkt:11:0: multiple-dwelling
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-DoJ9dw.rkt"
+: (baker 1 cooper 2 fletcher 4 miller 3 smith 5)
+: (baker 1 cooper 2 fletcher 4 miller 5 smith 3)
+: (baker 1 cooper 4 fletcher 2 miller 5 smith 3)
+: (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+: (baker 3 cooper 4 fletcher 2 miller 5 smith 1)
+
+Five solutions.
+
+*** 4.39
+
+Assume a smaller scaled question: Baker, Fletcher, smith lives in each layer in a 3-layers-high buiding. Baker don't live in first floor.
+
+Distinct filter first: 27 -> 6 -> 4. Enumerates $(27 - 6) + 6$.
+
+Baker-don't-live-in-first-floor filter first: 27 -> 18 -> 4. Enumerates $(27 - 18) + 18$.
+
+For more complicated conditions, after a filter layer, it becomes a simpler condition. And each layer the amb may continue or backtrace. All conitions would be explored, so it's better to let the amb backtraces early.
+
+So, the front conditions should filter more conditions. This would be faster:
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<distinct?>>
+
+(define (multiple-dwelling)
+  (let ([baker (amb 1 2 3 4 5)]
+        [cooper (amb 1 2 3 4 5)]
+        [fletcher (amb 1 2 3 4 5)]
+        [miller (amb 1 2 3 4 5)]
+        [smith (amb 1 2 3 4 5)])
+    (require (distinct? (list baker cooper fletcher miller smith)))
+    (require (> miller cooper))
+    (require (not (= (abs (- smith fletcher)) 1)))
+    (require (not (= (abs (- fletcher cooper)) 1)))
+    (require (and (not (= fletcher 5))
+                  (not (= fletcher 1)))) ; combine these two
+    (require (not (= baker 5)))
+    (require (not (= cooper 1)))
+    (list 'baker baker
+          'cooper cooper
+          'fletcher fletcher
+          'miller miller
+          'smith smith)))
+
+(multiple-dwelling)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-o4cwcE.rkt:12:0: multiple-dwelling
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-o4cwcE.rkt"
+: (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+
+*** 4.40
+
+The `distinct?` procedure reduce the posissibilties from $5^5=3125$ to $5+4+3+2=20$.
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<distinct?>>
+
+(define (multiple-dwelling)
+  (let     ([baker    (amb 1 2 3 4  )]
+            [fletcher (amb   2 3 4  )]
+            [cooper   (amb   2 3 4 5)])
+        (require (not (= (abs (- fletcher cooper)) 1)))
+    (let   ([smith    (amb 1 2 3 4 5)])
+        (require (not (= (abs (- smith fletcher)) 1)))
+      (let ([miller   (amb 1 2 3 4 5)])
+        (require (> miller cooper))
+        (require (distinct? (list baker cooper fletcher miller smith)))
+        (list 'baker baker
+              'cooper cooper
+              'fletcher fletcher
+              'miller miller
+              'smith smith)))))
+
+(multiple-dwelling)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-uq6q8H.rkt:12:0: multiple-dwelling
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-uq6q8H.rkt"
+: (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+
+*** 4.41
+
+#+begin_src racket :lang racket
+;<<distinct?>>
+(define (enumerate2 xs ys)
+  (stream-fold
+   (lambda (acc x)
+     (stream-append (stream-map (lambda (y) (cons x y)) ys) acc))
+   empty-stream xs))
+(define (enumerates . sss)
+  (cond [(null? sss) (error "No input -- ENUMERATES" sss)]
+        [(null? (cdr sss)) (car sss)]
+        [else (enumerate2 (car sss) (apply enumerates (cdr sss)))]))
+
+(define (repeat-stream x)
+  (define res (stream-cons x res))
+  res)
+
+(define five (stream 1 2 3 4 5))
+
+(define (pair->list ps)
+  (if (not (pair? ps)) (list ps)
+      (cons (car ps) (pair->list (cdr ps)))))
+
+(define (pipe . args)
+  (cond [(null? args) '<void>]
+        [(null? (cdr args)) (car args)]
+        [else (let ([obj (car args)] [fs (cdr args)])
+                ((apply compose1 (reverse fs)) obj))]))
+
+(define (multiple-dwelling)
+  (define (baker-floor layers) (list-ref layers 0))
+  (define (cooper-floor layers) (list-ref layers 1))
+  (define (fletcher-floor layers) (list-ref layers 2))
+  (define (miller-floor layers) (list-ref layers 3))
+  (define (smith-floor layers) (list-ref layers 4))
+  (define (adjacent? a b) (= (abs (- a b)) 1))
+  (define (format-output l)
+    (list
+     'baker (baker-floor l)
+     'cooper (cooper-floor l)
+     'fletcher (fletcher-floor l)
+     'miller (miller-floor l)
+     'smith (smith-floor l)))
+  (let ([conditions
+         (stream-map
+          pair->list
+          (apply enumerates
+                 (stream->list (stream-take (repeat-stream five) 5))))])
+    (pipe (stream->list (stream-filter distinct? conditions))
+          ((curry stream-filter) (lambda (l) (not (= (baker-floor l) 5))))
+          ((curry stream-filter) (lambda (l) (not (= (cooper-floor l) 1))))
+          ((curry stream-filter) (lambda (l) (and (not (= (fletcher-floor l) 5))
+                                                  (not (= (fletcher-floor l) 1)))))
+          ((curry stream-filter) (lambda (l) (> (miller-floor l) (cooper-floor l))))
+          ;; ((curry stream-filter) (lambda (l) (not (adjacent? (smith-floor l)
+          ;;                                                    (fletcher-floor l)))))
+          ((curry stream-filter) (lambda (l) (not (adjacent? (fletcher-floor l)
+                                                             (cooper-floor l)))))
+          stream->list
+          reverse ;; I found the reversed result is the same with Exercise 4.38
+          ((curry for-each) (lambda (l) (displayln (format-output l))))
+          )))
+
+(multiple-dwelling)
+#+end_src
+
+#+RESULTS:
+: (baker 1 cooper 2 fletcher 4 miller 3 smith 5)
+: (baker 1 cooper 2 fletcher 4 miller 5 smith 3)
+: (baker 1 cooper 4 fletcher 2 miller 5 smith 3)
+: (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+: (baker 3 cooper 4 fletcher 2 miller 5 smith 1)
+
+*** 4.42
+
+#+begin_src racket
+;<<amb-sicp>>
+;<<distinct?>>
+(define (liars-puzzle)
+  (define (one-true-one-untrue a b)
+    (and (or a b) (not (and a b))))
+  (let ([Betty (amb 1 2 3 4 5)]
+        [Ethel (amb 1 2 3 4 5)]
+        [Joan (amb 1 2 3 4 5)]
+        [Kitty (amb 1 2 3 4 5)]
+        [Mary (amb 1 2 3 4 5)])
+    (require (distinct? (list Betty Ethel Joan Kitty Mary)))
+    (require (one-true-one-untrue (= Kitty 2) (= Betty 3)))
+    (require (one-true-one-untrue (= Ethel 1) (= Joan 2)))
+    (require (one-true-one-untrue (= Kitty 2) (= Mary 4)))
+    (require (one-true-one-untrue (= Mary 4) (= Betty 1)))
+    (list 'Betty Betty
+          'Ethel Ethel
+          'Joan Joan
+          'Kitty Kitty
+          'Mary Mary)))
+
+(liars-puzzle)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-LUs1fa.rkt:11:0: liars-puzzle
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-LUs1fa.rkt"
+: (Betty 3 Ethel 5 Joan 2 Kitty 1 Mary 4)
+
+*** 4.43
+
+#+begin_src racket :noweb-ref 4-43
+;<<amb-sicp>>
+;<<distinct?>>
+(define (his-yacht people)
+  (cond [(eq? people 'Colonel-Downing) 'Mellisa]
+        [(eq? people 'Mr.-Hall) 'Rosalind]
+        [(eq? people 'Sir-Barnacle-Hood) 'Gabrielle]
+        [(eq? people 'Dr.-Parker) 'Mary-Ann]
+        [(eq? people 'Mr.-Moore) 'Lorna]
+        [else (error "HIS-YACHT:" people)]))
+
+#+end_src
+
+#+begin_src racket
+;<<4-43>>
+(define (daughter-and-yacht)
+  (let ([Mellisa-s-father                                   'Sir-Barnacle-Hood                        ]
+        [Rosalind-s-father  (amb 'Colonel-Downing                              'Dr.-Parker           )]
+        [Gabrielle-s-father (amb 'Colonel-Downing 'Mr.-Hall                    'Dr.-Parker           )]
+        [Mary-Ann-s-father                                                                 'Mr.-Moore ]
+        [Lorna-s-father     (amb 'Colonel-Downing 'Mr.-Hall                    'Dr.-Parker           )]
+        [Dr.-Parker-s-daughter (amb          'Rosalind 'Gabrielle           'Lorna)])
+    (require (distinct? (list                  Rosalind-s-father Gabrielle-s-father                   Lorna-s-father)))
+    (require (eq? (his-yacht Gabrielle-s-father) Dr.-Parker-s-daughter))
+    (list 'Mellisa   '& Mellisa-s-father   ': (his-yacht Mellisa-s-father) '*
+          'Rosalind  '& Rosalind-s-father  ': (his-yacht Rosalind-s-father) '*
+          'Gabrielle '& Gabrielle-s-father ': (his-yacht Gabrielle-s-father) '*
+          'Mary-Ann  '& Mary-Ann-s-father  ': (his-yacht Mary-Ann-s-father) '*
+          'Lorna     '& Lorna-s-father     ': (his-yacht Lorna-s-father))))
+
+(daughter-and-yacht)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-w142KT.rkt:19:0: daughter-and-yacht
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-w142KT.rkt"
+: (Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Colonel-Downing : Mellisa * Gabrielle & Mr.-Hall : Rosalind * Mary-Ann & Mr.-Moore : Lorna * Lorna & Dr.-Parker : Mary-Ann)
+: (Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Dr.-Parker : Mary-Ann * Gabrielle & Mr.-Hall : Rosalind * Mary-Ann & Mr.-Moore : Lorna * Lorna & Colonel-Downing : Mellisa)
+
+Two solutions when I know Mary's father is Mr. Moore.
+
+#+begin_src racket
+;<<4-43>>
+(define (daughter-and-yacht)
+  (let ([Mellisa-s-father                                   'Sir-Barnacle-Hood                        ]
+        [Rosalind-s-father  (amb 'Colonel-Downing                              'Dr.-Parker 'Mr.-Moore)]
+        [Gabrielle-s-father (amb 'Colonel-Downing 'Mr.-Hall                    'Dr.-Parker 'Mr.-Moore)]
+        [Mary-Ann-s-father  (amb 'Colonel-Downing 'Mr.-Hall                                'Mr.-Moore)]
+        [Lorna-s-father     (amb 'Colonel-Downing 'Mr.-Hall                    'Dr.-Parker           )]
+        [Dr.-Parker-s-daughter (amb          'Rosalind 'Gabrielle           'Lorna)])
+    (require (distinct? (list                  Rosalind-s-father Gabrielle-s-father Mary-Ann-s-father Lorna-s-father)))
+    (require (eq? (his-yacht Gabrielle-s-father) Dr.-Parker-s-daughter))
+    (list 'Mellisa   '& Mellisa-s-father   ': (his-yacht Mellisa-s-father) '*
+          'Rosalind  '& Rosalind-s-father  ': (his-yacht Rosalind-s-father) '*
+          'Gabrielle '& Gabrielle-s-father ': (his-yacht Gabrielle-s-father) '*
+          'Mary-Ann  '& Mary-Ann-s-father  ': (his-yacht Mary-Ann-s-father) '*
+          'Lorna     '& Lorna-s-father     ': (his-yacht Lorna-s-father))))
+
+(daughter-and-yacht)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+amb tree exhausted
+  context...:
+   c:\Users\asu\AppData\Local\Temp\org-babel-Ld9pUJ.rkt:19:0: daughter-and-yacht
+   body of "c:\Users\asu\AppData\Local\Temp\org-babel-Ld9pUJ.rkt"
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Colonel-Downing : Mellisa * Gabrielle & Mr.-Hall : Rosalind * Mary-Ann & Mr.-Moore : Lorna * Lorna & Dr.-Parker : Mary-Ann)
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Colonel-Downing : Mellisa * Gabrielle & Mr.-Moore : Lorna * Mary-Ann & Mr.-Hall : Rosalind * Lorna & Dr.-Parker : Mary-Ann)
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Dr.-Parker : Mary-Ann * Gabrielle & Mr.-Hall : Rosalind * Mary-Ann & Mr.-Moore : Lorna * Lorna & Colonel-Downing : Mellisa)
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Dr.-Parker : Mary-Ann * Gabrielle & Mr.-Moore : Lorna * Mary-Ann & Colonel-Downing : Mellisa * Lorna & Mr.-Hall : Rosalind)
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Dr.-Parker : Mary-Ann * Gabrielle & Mr.-Moore : Lorna * Mary-Ann & Mr.-Hall : Rosalind * Lorna & Colonel-Downing : Mellisa)
+(Mellisa & Sir-Barnacle-Hood : Gabrielle * Rosalind & Mr.-Moore : Lorna * Gabrielle & Mr.-Hall : Rosalind * Mary-Ann & Colonel-Downing : Mellisa * Lorna & Dr.-Parker : Mary-Ann)
+#+end_example
+
+6 solutions when I don't now Mary's family name is Moore.
+
+*** 4.44
+
+I tried to use quasiquote to generate some codes but failed because the `eval` requires environment which is different from the top-level. And different between `#lang sicp` list and `#lang racket`. I need to do more study then.
+
+#+begin_src racket
+;<<eight-queens>>
+(define (gen-same-amb-bindings names definition)
+  (map (lambda (n) (list n definition)) names))
+
+(define env (scheme-report-environment 5))
+(eval `(define (eight-queens-gen)
+  (let (,(gen-same-amb-bindings (list 'q1 'q2 'q3 'q4 'q5 'q6 'q7 'q8) '(amb 1 2 3 4 5 6 7 8)))
+    (require (distinct-by? (partial equal-by? line) (list q1 q2 q3 q4 q5 q6 q7 q8)))
+    (require (distinct-by? in-cross? (list q1 q2 q3 q4 q5 q6 q7 q8)))
+    (newline)
+    (draw-board (list q1 q2 q3 q4 q5 q6 q7 q8) 8)))
+      env)
+(eval '(eight-queens-gen) env)
+#+end_src
+
+#+RESULTS:
+: D:\scoop\apps\racket\current\share\pkgs\r5rs-lib\r5rs\main.rkt:326:7: let: bad syntax (not an identifier and expression for a binding)
+:   at: {{q1 {amb 1 2 3 4 5 6 7 8}} {q2 {amb 1 2 3 4 5 6 7 8}} {q3 {amb 1 2 3 4 5 6 7 8}} {q4 {amb 1 2 3 4 5 6 7 8}} {q5 {amb 1 2 3 4 5 6 7 8}} {q6 {amb 1 2 3 4 5 6 7 8}} {q7 {amb 1 2 3 4 5 6 7 8}} {q8 {amb 1 2 3 4 5 6 7 8}}}
+:   in: {let {{{q1 {amb 1 2 3 4 5 6 7 8}} {q2 {amb 1 2 3 4 5 6 7 8}} {q3 {amb 1 2 3 4 5 6 7 8}} {q4 {amb 1 2 3 4 5 6 7 8}} {q5 {amb 1 2 3 4 5 6 7 8}} {q6 {amb 1 2 3 4 5 6 7 8}} {q7 {amb 1 2 3 4 5 6 7 8}} {q8 {amb 1 2 3 4 5 6 7 8}}}} {r5rs:body {require {distinc...
+:   context...:
+:    D:\scoop\apps\racket\current\collects\racket\private\qq-and-or.rkt:101:61: loop
+:    D:\scoop\apps\racket\current\collects\racket\private\qq-and-or.rkt:50:20: go
+:    D:\scoop\apps\racket\current\share\pkgs\r5rs-lib\r5rs\main.rkt:351:24: loop
+:    D:\scoop\apps\racket\current\share\pkgs\r5rs-lib\r5rs\main.rkt:336:2
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-VsV2cC.rkt"
+
+Let me complete this exercise.
+
+#+begin_src racket :noweb-ref eight-queens
+;<<amb-sicp>>
+;<<distinct?>>
+;<<higher-order>>
+(define (draw-board queens n)
+  (define (draw-line q i)
+    (cond [(= (line q) i) (display "👸") (draw-line q (+ i 1))]
+          [(<= i n) (display "⬜") (draw-line q (+ i 1))]))
+  (for-each (lambda (queen) (draw-line queen 1) (newline)) queens))
+
+(define (memp f lst)
+  (cond [(null? lst) #f]
+        [(f (car lst)) lst]
+        [else (memp f (cdr lst))]))
+
+(define (distinct-by? eq-f items)
+  (cond ((null? items) true)
+        ((null? (cdr items)) true)
+        ((memp (lambda (to-cmp) (eq-f (car items) to-cmp)) (cdr items)) false)
+        (else (distinct-by? eq-f (cdr items)))))
+
+(define (equal-by? key a b)
+  (equal? (key a) (key b)))
+(define partial (F 'partial))
+
+(define (row pos) (car pos))
+(define (line pos) (cadr pos))
+(define (in-cross? a b)
+  (= (abs (- (line a) (line b))) (abs (- (row a) (row b)))))
+
+(define (eight-queens)
+  (let ([q1 (amb '(1 1) '(1 2) '(1 3) '(1 4) '(1 5) '(1 6) '(1 7) '(1 8))]
+        [q2 (amb '(2 1) '(2 2) '(2 3) '(2 4) '(2 5) '(2 6) '(2 7) '(2 8))]
+        [q3 (amb '(3 1) '(3 2) '(3 3) '(3 4) '(3 5) '(3 6) '(3 7) '(3 8))]
+        [q4 (amb '(4 1) '(4 2) '(4 3) '(4 4) '(4 5) '(4 6) '(4 7) '(4 8))]
+        [q5 (amb '(5 1) '(5 2) '(5 3) '(5 4) '(5 5) '(5 6) '(5 7) '(5 8))]
+        [q6 (amb '(6 1) '(6 2) '(6 3) '(6 4) '(6 5) '(6 6) '(6 7) '(6 8))]
+        [q7 (amb '(7 1) '(7 2) '(7 3) '(7 4) '(7 5) '(7 6) '(7 7) '(7 8))]
+        [q8 (amb '(8 1) '(8 2) '(8 3) '(8 4) '(8 5) '(8 6) '(8 7) '(8 8))])
+    (require (distinct-by? (partial equal-by? line) (list q1 q2 q3 q4 q5 q6 q7 q8)))
+    (require (distinct-by? in-cross? (list q1 q2 q3 q4 q5 q6 q7 q8)))
+    (newline)
+    (draw-board (list q1 q2 q3 q4 q5 q6 q7 q8) 8)))
+#+end_src
+
+#+begin_src racket
+;<<eight-queens>>
+(eight-queens)
+(amb)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+
+👸⬜⬜⬜⬜⬜⬜⬜
+⬜⬜⬜⬜👸⬜⬜⬜
+⬜⬜⬜⬜⬜⬜⬜👸
+⬜⬜⬜⬜⬜👸⬜⬜
+⬜⬜👸⬜⬜⬜⬜⬜
+⬜⬜⬜⬜⬜⬜👸⬜
+⬜👸⬜⬜⬜⬜⬜⬜
+⬜⬜⬜👸⬜⬜⬜⬜
+
+👸⬜⬜⬜⬜⬜⬜⬜
+⬜⬜⬜⬜⬜👸⬜⬜
+⬜⬜⬜⬜⬜⬜⬜👸
+⬜⬜👸⬜⬜⬜⬜⬜
+⬜⬜⬜⬜⬜⬜👸⬜
+⬜⬜⬜👸⬜⬜⬜⬜
+⬜👸⬜⬜⬜⬜⬜⬜
+⬜⬜⬜⬜👸⬜⬜⬜
+#+end_example
+
+The results of 8-queens problem are too many to display. Let me try all solutions of 4-queens then.
+
+#+begin_src racket
+;<<eight-queens>>
+(define (four-queens)
+  (let ([q1 (amb '(1 1) '(1 2) '(1 3) '(1 4))]
+        [q2 (amb '(2 1) '(2 2) '(2 3) '(2 4))]
+        [q3 (amb '(3 1) '(3 2) '(3 3) '(3 4))]
+        [q4 (amb '(4 1) '(4 2) '(4 3) '(4 4))])
+    (require (distinct-by? (partial equal-by? line) (list q1 q2 q3 q4)))
+    (require (distinct-by? in-cross? (list q1 q2 q3 q4)))
+    (newline)
+    (draw-board (list q1 q2 q3 q4) 4)))
+
+(four-queens)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+amb tree exhausted
+  context...:
+   c:\Users\asu\AppData\Local\Temp\org-babel-605Ye6.rkt:72:0: four-queens
+   body of "c:\Users\asu\AppData\Local\Temp\org-babel-605Ye6.rkt"
+
+⬜👸⬜⬜
+⬜⬜⬜👸
+👸⬜⬜⬜
+⬜⬜👸⬜
+
+⬜⬜👸⬜
+👸⬜⬜⬜
+⬜⬜⬜👸
+⬜👸⬜⬜
+#+end_example
+
+*** exp: Parsing Natural Language
+
+#+begin_src racket :noweb-ref sentence-dataset
+(define nouns '(noun student professor cat class))
+(define verbs '(verb studies lectures eats sleeps))
+(define articles '(article the a))
+
+(define prepositions '(prep for to in by with))
+#+end_src
+
+#+begin_src racket :noweb-ref sentence
+;<<amb-sicp>>
+(define (parse-sentence)
+  (list 'sentence
+        (parse-noun-phrase)
+        (parse-verb-phrase)))
+
+(define (parse-simple-noun-phrase)
+  (list 'simple-noun-phrase
+        (parse-word articles)
+        (parse-word nouns)))
+
+(define (parse-noun-phrase)
+  (define (maybe-extend noun-phrase)
+    (amb noun-phrase
+         (maybe-extend (list 'noun-phrase
+                             noun-phrase
+                             (parse-prepositional-phrase)))))
+  (maybe-extend (parse-simple-noun-phrase)))
+
+(define (parse-prepositional-phrase)
+  (list 'prep-phrase
+        (parse-word prepositions)
+        (parse-noun-phrase)))
+
+(define (parse-verb-phrase)
+  (define (maybe-extend verb-phrase)
+    (amb verb-phrase
+         (maybe-extend (list 'verb-phrase
+                             verb-phrase
+                             (parse-prepositional-phrase)))))
+  (maybe-extend (parse-word verbs)))
+
+(define (parse-word word-list)
+  (require (not (null? *unparsed*)))
+  (require (memq (car *unparsed*) (cdr word-list)))
+  (let ([found-word (car *unparsed*)])
+    (set! *unparsed* (cdr *unparsed*))
+    (list (car word-list) found-word)))
+
+(define *unparsed* '())
+(define (parse input)
+  (set! *unparsed* input)
+  (let ([sent (parse-sentence)])
+    (require (null? *unparsed*))
+    sent))
+#+end_src
+
+#+begin_src racket
+;<<sentence>>
+;<<sentence-dataset>>
+(parse '(the cat eats))
+(parse '(the student with the cat sleeps in the class))
+#+end_src
+
+#+RESULTS:
+: (sentence (simple-noun-phrase (article the) (noun cat)) (verb eats))
+: (sentence (noun-phrase (simple-noun-phrase (article the) (noun student)) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))) (verb-phrase (verb sleeps) (prep-phrase (prep in) (simple-noun-phrase (article the) (noun class)))))
+
+According to the Book, parsing a sentence with more meanings require `amb`'s ability to backtrace the change of `set!`'s side effect. Obviously the `amb` in `#lang sicp` can't do it.
+
+#+begin_src racket
+;<<sentence>>
+;<<sentence-dataset>>
+(parse '(the professor lectures to the student with the cat))
+(amb)
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-uHeuQ1.rkt:6:0: parse-sentence
+:    c:\Users\asu\AppData\Local\Temp\org-babel-uHeuQ1.rkt:45:0: parse
+:    body of "c:\Users\asu\AppData\Local\Temp\org-babel-uHeuQ1.rkt"
+: (sentence (simple-noun-phrase (article the) (noun professor)) (verb-phrase (verb-phrase (verb lectures) (prep-phrase (prep to) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))))
+
+I tried to reconstruct codes, to make it do not depends on the global variable and `set!` side effects. Then I found that it would totally change the structure of the codes and the `amb` becomes to a needless.
+
+*** 4.45
+
+"The professor lectures to the student in the class with the cat."
+
+1. The professor takes a cat to lecture:
+   "The professor lectures (to the student) in the class with the cat."
+
+2. The student take a cat to having a lecture:
+   "The professor lectures (to the student) in the class (with the cat)."
+
+3. The student is already in the classroom, waiting the professor and his/her cat.
+   "The professor lectures (to the student in the class) with the cat."
+
+4. The student with a cat is already in the classroom, waiting the professor:
+   "The professor lectures (to the student in the class with the cat)."
+
+5. The same meaning with 1, but the parser thinks they are different:
+   "[The professor lectures] to the student [in the class with the cat]."
+
+*** 4.46
+
+Let me focus on one procedure:
+
+#+begin_src racket
+(define (parse-noun-phrase)
+  (define (maybe-extend noun-phrase)
+    (amb noun-phrase
+         (maybe-extend (list 'noun-phrase
+                             noun-phrase
+                             (parse-prepositional-phrase)))))
+  (maybe-extend (parse-simple-noun-phrase)))
+#+end_src
+
+If the `amb` always choose the second options in this procedure, it will runs into endless recursion.
+
+*** 4.47
+
+#+begin_src racket
+;<<sentence>>
+;<<sentence-dataset>>
+(define (parse-verb-phrase-4-47)
+  (amb (parse-word verbs)
+       (list 'verb-phrase
+             (parse-verb-phrase-4-47)
+             (parse-prepositional-phrase))))
+(set! parse-verb-phrase parse-verb-phrase-4-47)
+
+(parse '(the professor lectures to a student with a cat))
+#+end_src
+
+#+RESULTS:
+: out of memory
+
+I uncarefully run the code and my computer get stucked... For a few seconds.
+
+#+begin_src racket
+(define (parse-verb-phrase)
+  (define (maybe-extend verb-phrase)
+    (amb verb-phrase
+         (maybe-extend (list 'verb-phrase
+                             verb-phrase
+                             (parse-prepositional-phrase)))))
+  (maybe-extend (parse-word verbs)))
+#+end_src
+
+Comparing the two, the original version saves the result of `(parse-word verbs)` into a varialbe `verb-phrase`, but this version do not. So every time calls the `parse-verb-phrase-4-47`, the expr will be computed. `amb` choose left then failed, so goto the right; but the right needs to choose left again. This makes endless recursion, no matter the choosing order of `amb`.
+
+*** 4.48
+
+#+begin_src racket
+;<<sentence>>
+;<<sentence-dataset>>
+(define adjectives '(adj lazy intelligent))
+(define adverbs '(adv hard happily))
+
+(define (parse-simple-noun-phrase-4-48)
+  (amb
+   (list 'simple-noun-phrase
+        (parse-word articles)
+        (parse-word nouns))
+   (list 'simple-noun-phrase
+        (parse-word articles)
+        (parse-word adjectives)
+        (parse-word nouns))))
+
+(define (parse-verb-phrase-4-48)
+  (define (maybe-extend verb-phrase)
+    (amb verb-phrase
+         (maybe-extend (list 'verb-phrase
+                             verb-phrase
+                             (parse-prepositional-phrase)))
+         (maybe-extend (list 'verb-phrase
+                             verb-phrase
+                             (parse-prepositional-phrase)
+                             (parse-word adverbs)))))
+  (maybe-extend (parse-word verbs)))
+(set! parse-simple-noun-phrase parse-simple-noun-phrase-4-48)
+(set! parse-verb-phrase parse-verb-phrase-4-48)
+
+(parse '(the professor lectures to the student with the cat))
+(parse '(the professor lectures to the student with the cat happily))
+(parse '(the intelligent professor lectures to the student with the lazy cat happily))
+#+end_src
+
+#+RESULTS:
+: amb tree exhausted
+:   context...:
+:    c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-Dmjbus.rkt:16:0: parse-noun-phrase
+:    c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-Dmjbus.rkt:6:0: parse-sentence
+:    c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-Dmjbus.rkt:45:0: parse
+:    body of "c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-Dmjbus.rkt"
+: (sentence (simple-noun-phrase (article the) (noun professor)) (verb-phrase (verb-phrase (verb lectures) (prep-phrase (prep to) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))))
+
+It blames to the `amb` cannot backtrace the side effect of `set!`.
+
+*** 4.49
+
+#+begin_src racket
+;<<sentence>>
+;<<sentence-dataset>>
+;<<an-element-of>>
+(define (parse-word-and-generate word-list)
+  (require (not (null? *unparsed*)))
+  (require (memq (car *unparsed*) (cdr word-list)))
+  (set! *unparsed* (cdr *unparsed*))
+  (list (car word-list) (an-element-of (cdr word-list))))
+
+(define (generate input-structure)  ;; Well, this do the same with `parse`
+  (set! *unparsed* input-structure) ;; procedure, I just change the variable
+  (let ([sent (parse-sentence)])    ;; name.
+    (require (null? *unparsed*))
+    sent))
+
+(set! parse-word parse-word-and-generate)
+
+(generate '(the professor lectures to the student with the cat))
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+amb tree exhausted
+  context...:
+   c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-CE3FUI.rkt:58:0: parse-word-and-generate
+   c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-CE3FUI.rkt:16:0: parse-noun-phrase
+   c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-CE3FUI.rkt:6:0: parse-sentence
+   c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-CE3FUI.rkt:64:0: generate
+   body of "c:\Users\asu\AppData\Local\Temp\babel-9MzPVt\org-babel-CE3FUI.rkt"
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun student)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun professor)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun cat)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun class)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun professor)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun cat)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb-phrase (verb studies) (prep-phrase (prep for) (simple-noun-phrase (article the) (noun class)))))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb lectures))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb eats))
+(sentence (simple-noun-phrase (article the) (noun student)) (verb sleeps))
+#+end_example
+
+* 4.4 Implemeting the `Amb` Evaluator
 
 * Helper functions
 
@@ -2979,11 +4010,57 @@ When the lazy list is not forced to evalute, the REPL should not print the force
 #+begin_src racket :noweb-ref fold
 (define (fold-left f acc lst)
   (if (null? lst) acc
-      (fold-left f (f (car lst) acc) (cdr lst))))
+      (fold-left f (f acc (car lst)) (cdr lst))))
 
 (define (fold-right f lst acc)
   (if (null? lst) acc
       (f (car lst) (fold-right f (cdr lst) acc))))
+#+end_src
+
+#+begin_src racket :noweb-ref stream
+(define stream-car car)
+(define (stream-cdr ss) (force (cdr ss)))
+
+(define (stream-map f . sss)
+  ;<<fold>>
+  (cond [(null? sss) the-empty-stream]
+        [(fold-left (lambda (acc ss) (or (stream-null? ss) acc)) #f sss)
+         the-empty-stream]
+        [else
+         (cons-stream (apply f (map stream-car sss))
+                      (apply stream-map (cons f (map stream-cdr sss))))]))
+(define (add-streams . sss)
+  (apply stream-map (cons + sss)))
+
+(define (stream-filter f ss)
+  (cond [(stream-null? ss) the-empty-stream]
+        [(f (stream-car ss))
+         (cons-stream (stream-car ss)
+                      (stream-filter f (stream-cdr ss)))]
+        [else (stream-filter f (stream-cdr ss))]))
+(define (stream-take ss n)
+  (cond [(stream-null? ss) '()]
+        [(<= n 0) '()]
+        [else (cons (stream-car ss) (stream-take (stream-cdr ss) (- n 1)))]))
+
+(define ones (cons-stream 1 ones))
+(define integers (cons-stream 1 (add-streams ones integers)))
+
+(define (integers-start-from n)
+  (define (iter ss)
+    (if (= n (stream-car ss)) ss
+        (iter (stream-cdr ss))))
+  (iter integers))
+
+(define (divisible? x n)
+  (= (remainder x n) 0))
+
+(define (sieve ss)
+  (cons-stream (stream-car ss)
+               (sieve (stream-filter
+                       (lambda (x) (not (divisible? x (stream-car ss))))
+                       (stream-cdr ss)))))
+(define primes (sieve (integers-start-from 2)))
 #+end_src
 
 * COMMENT Local Variables

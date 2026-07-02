@@ -1,0 +1,404 @@
+#+title: Eval-Racket-Version
+#+property: header-args:racket :results output :noweb yes
+
+This is a draft when I was trying to run the evaluation of Book 4.1.4. I failed to run the evaluator because I misunderstand the usage of inner definition (inner definition is described in 4.1.6, but that time I was doing 4.1.4). So I tried to use the modulization mechanism in `#lang racket`. This below worked out, but later I got to know how to let my `#lang sicp` version working.
+
+There maybe a bug about `let` grammar, and maybe more. This is because I found it in my `#lang sicp` version when I was reading Book 4.2, and I fixed the bugs in that version but didn't change this.
+
+#+begin_src racket
+(module main racket
+
+  (define apply-in-underlying-scheme apply)
+
+  (module* eval-exp #f
+    ;<<mcadr>>
+    (require compatibility/mlist)
+    (provide eval apply setup-environment)
+
+    (define (eval expr env)
+      (cond
+        [(self-evaluating? expr) expr]
+        [(variable? expr) (lookup-variable-value expr env)]
+        [(quoted? expr) (text-of-quotation expr)]
+        [(assignment? expr) (eval-assignment expr env)]
+        [(definition? expr) (eval-definition expr env)]
+        [(lambda? expr)
+         (make-procedure (lambda-parameters expr)
+                         (lambda-body expr)
+                         env)]
+        [(begin? expr)
+         (eval-sequence (begin-actions expr) env)]
+        [(if? expr) (eval-if expr env)]
+        [(cond? expr) (eval (cond->if expr) env)]
+        [(and? expr) (eval-and expr env)] ; and & or: Exercise 4.4
+        [(or? expr) (eval-or expr env)]
+        [(let? expr) (eval (let->combination expr) env)] ; let: Exercise 4.6
+        [(let*? expr) (eval (let*->nested-lets expr) env)] ; let*: Exercise 4.7
+        [(application? expr)
+         (apply (eval (operator expr) env)
+                (list-of-values (operands expr) env))]
+        [else (error "Unknown expression type -- EVAL" expr)]))
+
+    (define (apply procedure arguments)
+      (cond
+        [(primitive-procedure? procedure)
+         (apply-primitive-procedure procedure arguments)]
+        [(compound-procedure? procedure)
+         (eval-sequence
+          (procedure-body procedure)
+          (extend-environment
+           (procedure-parameters procedure)
+           arguments
+           (procedure-environment procedure)))]
+        [else (error "Unknown procedure type -- APPLY" (mlist procedure arguments))]))
+
+    (define (list-of-values exprs env)
+      (if (no-operands? exprs)
+          '()
+          (mcons (eval (first-operand exprs) env)
+                 (list-of-values (rest-operands exprs) env))))
+
+    (define (eval-if expr env)
+      (if (true? (eval (if-predicate expr) env))
+          (eval (if-consequent expr) env)
+          (eval (if-alternative expr) env)))
+
+    (define (eval-sequence exprs env)
+      (cond [(last-expr? exprs) (eval (first-expr exprs) env)]
+            [else (eval (first-expr exprs) env)
+                  (eval-sequence (rest-exprs exprs) env)]))
+
+    (define (eval-assignment expr env)
+      (set-variable-value! (assignment-variable expr)
+                           (eval (assignment-value expr) env)
+                           env)
+      'ok)
+
+    (define (eval-definition expr env)
+      (define-variable! (definition-variable expr)
+        (eval (definition-value expr) env)
+        env)
+      'ok)
+    (define (self-evaluating? expr)
+      (cond [(number? expr) true]
+            [(string? expr) true]
+            [else false]))
+
+    (define (variable? expr) (symbol? expr))
+
+    ;; quote
+    (define (quoted? expr)
+      (tagged-list? expr 'quote))
+    (define (text-of-quotation expr) (mcadr expr))
+
+    (define (tagged-list? expr tag)
+      (if (mpair? expr)
+          (eq? (mcar expr) tag)
+          false))
+
+    ;; assignment
+    (define (assignment? expr)
+      (tagged-list? expr 'set!))
+    (define (assignment-variable expr) (mcadr expr))
+    (define (assignment-value expr) (mcaddr expr))
+
+    ;; definition
+    (define (definition? expr)
+      (tagged-list? expr 'define))
+    (define (definition-variable expr)
+      (if (symbol? (mcadr expr))
+          (mcadr expr)           ; (define <var> <value>)
+          (mcaadr expr)))        ; (define (function_name arg...) <value>)
+    (define (definition-value expr)
+      (if (symbol? (mcadr expr))
+          (mcaddr expr)
+          (make-lambda (mcdadr expr)
+                       (mcddr expr))))
+    ; lambda
+    (define (make-lambda parameters body)
+      (mcons 'lambda (mcons parameters body)))
+    (define (lambda? expr) (tagged-list? expr 'lambda))
+    (define lambda-parameters mcadr)
+    (define lambda-body mcddr)
+
+    ;; if
+    (define (make-if predicate consequent alternative)
+      (mlist 'if predicate consequent alternative))
+    (define (if? expr) (tagged-list? expr 'if))
+    (define if-predicate mcadr)
+    (define if-consequent mcaddr)
+    (define (if-alternative expr)
+      (if (not (null? (mcdddr expr)))
+          (mcadddr expr)
+          false))
+
+    ;; begin
+    (define (begin? expr) (tagged-list? expr 'begin))
+    (define (begin-actions expr) (mcdr expr))
+    (define (last-expr? seq) (null? (mcdr seq)))
+    (define first-expr mcar)
+    (define rest-exprs mcdr)
+
+    (define (sequence->expr seq)
+      (cond [(null? seq) seq]
+            [(last-expr? seq) (first-expr seq)]
+            [else (make-begin seq)]))
+    (define (make-begin seq) (mcons 'begin seq))
+
+    ;; apply
+    (define (application? expr) (mpair? expr))
+    (define operator mcar)
+    (define operands mcdr)
+    (define (no-operands? ops) (null? ops))
+    (define first-operand mcar)
+    (define rest-operands mcdr)
+    (define (cond? expr) (tagged-list? expr 'cond))
+    (define cond-clauses mcdr)
+    (define (cond-predicate clause) (mcar clause))
+    (define (cond-actions clause) (mcdr clause))
+    (define (cond-else-clause? clause) (eq? (cond-predicate clause) 'else))
+
+    (define (cond->if expr)
+      (expand-clauses (cond-clauses expr)))
+
+    (define (expand-clauses clauses)
+      (if (null? clauses)
+          false              ; clause else
+          (let ([first (mcar clauses)] [rest (mcdr clauses)])
+            (if (cond-else-clause? first)
+                (if (null? rest)
+                    (sequence->expr (cond-actions first))
+                    (error "ELSE clause is not last -- COND->IF" clauses))
+                (make-if (cond-predicate first)
+                         (sequence->expr (cond-actions first))
+                         (expand-clauses rest))))))
+    (define (and? expr) (tagged-list? expr 'and))
+    (define (eval-and expr env)
+      (define (iter seq)
+        (let ([curr (eval (first-expr seq) env)])
+          (if (not curr) false
+              (if (last-expr? seq)
+                  curr
+                  (iter (rest-exprs seq))))))
+      (if (null? (mcdr expr)) true
+          (iter (mcdr expr))))
+
+    (define (or? expr) (tagged-list? expr 'or))
+    (define (eval-or expr env)
+      (define (iter seq)
+        (let ([curr (eval (first-expr seq) env)])
+          (if curr true
+              (if (last-expr? seq)
+                  curr
+                  (iter (rest-exprs seq))))))
+      (if (null? (mcdr expr)) false
+          (iter (mcdr expr))))
+    (define (make-application proc exprs)
+      (mcons proc exprs))
+
+    (define (make-let bindings body)
+      (mlist 'let bindings body))
+    (define (let? expr) (tagged-list? expr 'let))
+    (define let-bindings mcadr)
+    (define let-body mcaddr)
+    (define (binding? expr) (and (mpair? expr) (mpair? (mcdr expr)) (null? (mcddr expr))
+                                 (variable? (mcar expr))))
+    (define bindings-first mcar)
+    (define bindings-rest mcdr)
+    (define binding-variable mcar)
+    (define binding-value mcadr)
+
+    (define (let->combination expr)
+      (define (iter bindings variables exprs)
+        (if (null? bindings) (mcons variables exprs)
+            (let ([first (bindings-first bindings)]
+                  [rest (bindings-rest bindings)])
+              (if (binding? first)
+                  (iter rest
+                        (mcons (binding-variable first) variables) ; note that it reverse the order
+                        (mcons (binding-value first) exprs))
+                  (error "Binding form illegal -- LET" first)))))
+
+      (let ([parameters-expressions (iter (let-bindings expr) '() '())])
+        (make-application (make-lambda (mcar parameters-expressions)
+                                       (let-body expr))
+                          (mcdr parameters-expressions))))
+    (define (let*? expr) (tagged-list? expr 'let*))
+    (define (let*->nested-lets expr)
+      (let ([bindings (let-bindings expr)])
+        (if (or (null? bindings) (last-expr? bindings))
+            expr
+            (make-let (bindings-first bindings)
+                      (let*->nested-lets (make-let (bindings-rest bindings)
+                                                   (let-body expr)))))))
+    (define (true? x)
+      (not (eq? x) false))
+    (define (false? x)
+      (eq? x false))
+    (define (make-procedure parameters body env)
+      (mlist 'procedure parameters body env))
+
+    (define (compound-procedure? p)
+      (tagged-list? p 'procedure))
+    (define procedure-parameters mcadr)
+    (define procedure-body mcaddr)
+    (define procedure-environment mcadddr)
+    (define the-empty-environment '())
+    (define (enclosing-environment envs) (mcdr envs))
+    (define (first-frame envs) (mcar envs))
+
+    (define (zip2 xs ys)
+      (mmap mlist xs ys))
+
+    (define (make-frame-by-bindings bindings) bindings) ; a frame is bindings
+    (define (make-frame vars vals) (zip2 vars vals))
+    (define (make-binding var val) (mlist var val))
+    ;; (define binding-variable mcar) ; they are defined above
+    ;; (define binding-value mcadr)
+    (define (bind-new-value! binding val)
+      (set-mcdr! binding (mlist val)))
+    (define (add-binding-to-frame! var val frame)
+      (set! frame (mcons (make-binding var val) frame)))
+      ; this frame can be set! because it's mutable list
+
+    ;; this procedure is the same with example in book
+    (define (extend-environment vars vals base-env)
+      (if (= (mlength vars) (mlength vals))
+          (mcons (make-frame vars vals) base-env)
+          (if (< (mlength vars) (mlength vals))
+              (error "Too many arguments supplied -- EXTEND-ENVIRONMENT" vars vals)
+              (error "Too few arguments supplied -- EXTEND-ENVIRONMENT" vars vals))))
+
+    (define (lookup-variable-value var env)
+      (define (env-loop env)
+        (if (eq? env the-empty-environment)
+            (error "Unbound variable" var)
+            (let ([record (massv var (first-frame env))])
+              (if record
+                  (binding-value record)
+                  (env-loop (enclosing-environment env))))))
+      (env-loop env))
+    (define (set-variable-value! var val env)
+      (define (env-loop env)
+        (if (eq? env the-empty-environment)
+            (error "Unbound variable -- SET!" var)
+            (let ([record (massv var (first-frame env))])
+              (if record
+                  (bind-new-value! record val)
+                  (env-loop (enclosing-environment env))))))
+      (env-loop env))
+    (define (define-variable! var val env)
+      (let* ([frame (first-frame env)]
+             [record (massv var frame)])
+        (if record
+            (bind-new-value! record val)
+            (add-binding-to-frame! var val frame))))
+
+    (define primitive-procedures
+      (mlist
+       (mlist 'car mcar) (mlist 'cdr mcdr)
+       (mlist 'cons mcons) (mlist 'null? null?)))
+
+    (define (primitive-procedure-names)
+      (mmap mcar primitive-procedures))
+
+    (define (primitive-procedure-objects)
+      (mmap (lambda (proc) (mlist 'primitive (mcadr proc)))
+            primitive-procedures))
+
+    (define (setup-environment)
+      (let ([initial-env
+             (extend-environment (primitive-procedure-names)
+                                 (primitive-procedure-objects)
+                                 the-empty-environment)])
+        (define-variable! 'true true initial-env)
+        (define-variable! 'false false initial-env)
+        initial-env))
+
+    (define (primitive-procedure? expr)
+      (tagged-list? expr 'primitive))
+    (define (primitive-implementation proc) (mcadr proc))
+
+    (define (apply-primitive-procedure proc args)
+      (apply-in-underlying-scheme
+       (primitive-implementation proc) (mlist->list args)))
+    )
+
+  )
+
+;(require 'main)
+(require (submod 'main eval-exp))
+(require compatibility/mlist)
+
+(define the-global-environment (setup-environment))
+
+(define (list->mlist-rec lst)
+  (cond [(null? lst) lst]
+        [(list? (car lst))
+         (mcons (list->mlist-rec (car lst))
+                (list->mlist-rec (cdr lst)))]
+        [else (mcons (car lst)
+                     (list->mlist-rec (cdr lst)))]))
+
+(map displayln
+     (list
+      (eval (mlist 'cons 1 2) the-global-environment)
+      (eval (list->mlist '(cons 1 2)) the-global-environment)
+      (eval (list->mlist-rec '(car (cons 1 2))) the-global-environment)
+      (eval (mlist 'car (mlist 'cons 1 2)) the-global-environment)
+      (eval (mlist 'quote (mlist 'cons 1 2)) the-global-environment)
+      (eval (mlist 'cons 1 (mlist 'quote 'a)) the-global-environment)
+      ))
+#+end_src
+
+#+RESULTS:
+: {1 . 2}
+: {1 . 2}
+: 1
+: 1
+: {cons 1 2}
+: {1 . a}
+: '(#<void> #<void> #<void> #<void> #<void> #<void>)
+
+* Helper functions
+
+#+begin_src racket :noweb-ref mcadr
+(define mcaar (compose1 mcar mcar))
+(define mcadr (compose1 mcar mcdr))
+(define mcdar (compose1 mcdr mcar))
+(define mcddr (compose1 mcdr mcdr))
+(define mcaaar (compose1 mcar mcar mcar))
+(define mcaadr (compose1 mcar mcar mcdr))
+(define mcadar (compose1 mcar mcdr mcar))
+(define mcaddr (compose1 mcar mcdr mcdr))
+(define mcdaar (compose1 mcdr mcar mcar))
+(define mcdadr (compose1 mcdr mcar mcdr))
+(define mcddar (compose1 mcdr mcdr mcar))
+(define mcdddr (compose1 mcdr mcdr mcdr))
+(define mcadddr (compose1 mcar mcdr mcdr mcdr))
+#+end_src
+
+#+begin_src racket :noweb-ref sicp
+(module sicp racket
+  (provide (all-defined-out))
+  (define (square x) (* x x))
+  (define (average a b) (/ (+ a b) 2))
+  )
+#+end_src
+
+#+RESULTS:
+
+#+begin_src racket
+;<<sicp>>
+(require 'sicp)
+(square 2)
+#+end_src
+
+#+RESULTS:
+: 4
+
+* COMMENT Local Variables
+# Local Variables:
+# org-babel-noweb-wrap-start: ";<<"
+# org-babel-noweb-wrap-end: ">>"
+# End:
