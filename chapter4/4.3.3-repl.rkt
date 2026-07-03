@@ -1,4 +1,3 @@
-;; [[file:exercise.org::*exp][exp:2]]
 #lang sicp
 
 
@@ -378,8 +377,6 @@
     (make-let (unassigned-bindings (car vars-vals))
               (sequence->expr (append (map (lambda (var val) (make-assignment var val)) (car vars-vals) (cdr vars-vals))
                                       (letrec-body expr))))))
-(define the-global-environment (setup-environment))
-
 (define input-prompt ";;; M-Eval input:")
 (define output-prompt ";;; M-Eval output:")
 
@@ -403,5 +400,178 @@
                      (procedure-body object)
                      '<procedure-env>))
       (display object)))
-(driver-loop)
-;; exp:2 ends here
+(define (amb? expr) (tagged-list? expr 'amb))
+(define (amb-choices expr) (cdr expr))
+
+(define (ambeval expr env succeed fail)
+  ((analyze expr) env succeed fail))
+
+(define (analyze expr)
+  (cond [(self-evaluating? expr) (analyze-self-evaluating expr)]
+        [(quoted? expr) (analyze-quoted expr)]
+        [(variable? expr) (analyze-variable expr)]
+        [(assignment? expr) (analyze-assignment expr)]
+        [(definition? expr) (analyze-definition expr)]
+        [(if? expr) (analyze-if expr)]
+        [(lambda? expr) (analyze-lambda expr)]
+        [(begin? expr) (analyze-sequence (begin-actions expr))]
+        [(cond? expr) (analyze (cond->if expr))]
+        ;; [(let? expr) (analyze (let->combination expr))]         ; let: Exercise 4.22
+        [(amb? expr) (analyze-amb expr)]
+        [(application? expr) (analyze-application expr)]
+        [else (error "Unknown expression type -- ANALYZE" expr)]))
+(define (analyze-self-evaluating expr)
+  (lambda (env succeed fail)
+    (succeed expr fail)))
+
+(define (analyze-quoted expr)
+  (let ([qval (text-of-quotation expr)])
+    (lambda (env succeed fail)
+      (succeed qval fail))))
+
+(define (analyze-variable expr)
+  (lambda (env succ fail)
+    (succ (lookup-variable-value expr env) fail)))
+
+(define (analyze-lambda expr)
+  (let ([vars (lambda-parameters expr)]
+        [bproc (lambda-body expr)])
+    (lambda (env succ fail)
+      (succ (make-procedure vars bproc env) fail))))
+(define (analyze-if expr)
+  (let ([pproc (analyze (if-predicate expr))]
+        [cproc (analyze (if-consequent expr))]
+        [aproc (analyze (if-alternative expr))])
+    (lambda (env succ fail)
+      (pproc env
+             (lambda (pred-value failp)
+               (if (true? pred-value)
+                   (cproc env succ failp)
+                   (aproc env succ failp)))
+             fail))))
+
+(define (analyze-sequence expr)
+  (define (sequentially a b)
+    (lambda (env succ fail)
+      (a env
+         (lambda (a-value faila)
+           (b env succ faila))
+         fail)))
+  (define (loop first-proc rest-procs)
+    (if (null? rest-procs)
+        first-proc
+        (loop (sequentially first-proc (car rest-procs))
+              (cdr rest-procs))))
+  (let ([procs (map analyze expr)])
+    (if (null? procs)
+        (error "Empty sequence -- ANALYZE"))
+    (loop (car procs) (cdr procs))))
+(define (analyze-definition expr)
+  (let ([var (definition-variable expr)]
+        [vproc (analyze (definition-value expr))])
+    (lambda (env succ fail)
+      (vproc env
+             (lambda (val failv)
+               (define-variable! var val env)
+               (succ 'ok failv))
+             fail))))
+
+(define (analyze-assignment expr)
+  (let ([var (assignment-variable expr)]
+        [vproc (assignment-value expr)])
+    (lambda (env succ fail)
+      (vproc env
+             (lambda (val failv)
+               (let ([old-value (lookup-variable-value var env)])
+                 (set-variable-value! var val env)
+                 (succ 'ok
+                       (lambda ()
+                         (set-variable-value! var old-value env)
+                         (failv)))))
+             fail))))
+(define (analyze-application expr)
+  (display expr)
+  (display (operator expr))
+  (display (operands expr))
+  (let ([fproc (analyze (operator expr))]
+        [aprocs (map analyze (operands expr))])
+    (lambda (env succ fail)
+      (fproc env
+             (lambda (proc failf)
+               (get-args aprocs
+                         env
+                         (lambda (args failg)
+                           (execute-application
+                            proc args succ failg))
+                         failf))
+             fail))))
+
+(define (get-args aprocs env succ fail)
+  (if (null? aprocs)
+      (succ '() fail)
+      ((car aprocs) env
+                    (lambda (arg faila)
+                      (get-args (cdr aprocs)
+                                env
+                                (lambda (args fail-rest)
+                                  (succ (cons arg args)
+                                        fail-rest))
+                                faila))
+                      fail)))
+
+(define (execute-application proc args succ fail)
+  (cond [(primitive-procedure? proc)
+         (succ (apply-primitive-procedure proc args) fail)]
+        [(compound-procedure? proc)
+         ((procedure-body proc)
+          (extend-environment (procedure-parameters proc)
+                              args
+                              (procedure-environment proc))
+          succ fail)]
+        [else (error "Unknown procedure type -- EXECUTE-APPLICATION" proc)]))
+(define (analyze-amb expr)
+  (let ([cprocs (map analyze (amb-choices expr))])
+    (lambda (env succ fail)
+      (define (try-next choices)
+        (if (null? choices)
+            (fail)
+            ((car choices) env
+                           succ
+                           (lambda ()
+                             (try-next (cdr choices))))))
+      (try-next cprocs))))
+
+(define the-global-environment (setup-environment))
+
+(define (amb-repl-scope)
+  (define input-prompt ";;; Amb-Eval input:")
+  (define output-prompt ";;; Amb-Eval output:")
+
+  (define (driver-loop)
+    (define (internal-loop try-again)
+      (prompt-for-input input-prompt)
+      (let ([input (read)])
+        (if (eq? input 'try-again)
+            (try-again)
+            (begin
+              (newline)
+              (display ";;; Starting a new problem")
+              (ambeval input
+                       the-global-environment
+                       (lambda (val next-alternative)
+                         (announce-output output-prompt)
+                         (user-print val)
+                         (internal-loop next-alternative))
+                       (lambda ()
+                         (announce-output ";;; There are no more value of")
+                         (user-print input)
+                         (driver-loop)))))))
+    (internal-loop
+     (lambda ()
+       (newline)
+       (display ";;; There is no current problem")
+       (driver-loop))))
+  (driver-loop)
+)
+
+(amb-repl-scope)

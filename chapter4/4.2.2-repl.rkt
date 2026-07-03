@@ -259,7 +259,7 @@
 (define (lookup-variable-value var env)
   (define (env-loop env)
     (if (eq? env the-empty-environment)
-        (error "Unbound variable" var)
+        (error "Unbound variable:" var)
         (let ([record (assv var (first-frame env))])
           (if record
               (binding-value record)
@@ -299,7 +299,9 @@
    (list 'cons cons) (list 'null? null?)
    (list 'list list) (list 'pair? pair?)
    (list '+ +) (list '- -) (list '* *) (list '/ /)
-   (list '= =)
+   (list '= =) (list '< <) (list '> >)
+   (list 'display display) (list 'newline newline) ; Exercise 4.30
+   (list 'eq? eq?) ; Exercise 4.34
    ))
 
 (define (primitive-procedure-names)
@@ -323,20 +325,23 @@
       (if (null? xs) acc
           (iter (cdr xs) (cons (car xs) acc))))
     (iter lst '()))
-  (define (iter rests acc-v acc-e)
+  (define (iter rests acc-v acc-e acc-b)
     ;; in r5rs, the last expr of a procedure body should not be a definition;
     ;; but I choose to return a '<void> simply
     (cond [(null? rests) (list (reversed acc-v) (reversed acc-e) ''<void>)]
           [(and (last-expr? rests)
                 (not (definition? (first-expr rests))))
-           (list (reversed acc-v) (reversed acc-e) (first-expr rests))]
+           (list (reversed acc-v) (reversed acc-e)
+                 (sequence->expr (reversed (cons (first-expr rests) acc-b))))]
           [(definition? (first-expr rests))
            (let ([def (first-expr rests)])
              (iter (cdr rests)
                    (cons (definition-variable def) acc-v)
-                   (cons (definition-value def) acc-e)))]
-          [else (iter (cdr rests) acc-v acc-e)]))
-  (let ([vars-vals-expr (iter proc-body '() '())])
+                   (cons (definition-value def) acc-e)
+                   acc-b))]
+          [else (iter (cdr rests) acc-v acc-e
+                      (cons (first-expr rests) acc-b))]))
+  (let ([vars-vals-expr (iter proc-body '() '() '())])
     (let ([vars (car vars-vals-expr)]
           [vals (cadr vars-vals-expr)]
           [expr (caddr vars-vals-expr)])
@@ -349,7 +354,7 @@
 (define (unzip2 pairs)
   (define (fold-left f acc lst)
     (if (null? lst) acc
-        (fold-left f (f (car lst) acc) (cdr lst))))
+        (fold-left f (f acc (car lst)) (cdr lst))))
   
   (define (fold-right f lst acc)
     (if (null? lst) acc
@@ -372,6 +377,9 @@
     (make-let (unassigned-bindings (car vars-vals))
               (sequence->expr (append (map (lambda (var val) (make-assignment var val)) (car vars-vals) (cdr vars-vals))
                                       (letrec-body expr))))))
+(define (actual-value expr env)
+  (force-it (eval-lazy expr env)))
+
 (define (eval-lazy expr env)
   (cond
     [(self-evaluating? expr) expr]
@@ -397,9 +405,6 @@
                  (operands expr)
                  env)]
     [else (error "Unknown expression type -- EVAL" expr)]))
-
-(define (actual-value expr env)
-  (force-it (eval-lazy expr env)))
 
 (define (apply-lazy procedure arguments env)
   (cond

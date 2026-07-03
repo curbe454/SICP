@@ -109,6 +109,7 @@ And this version evals from right to left:
 (define (self-evaluating? expr)
   (cond [(number? expr) true]
         [(string? expr) true]
+        [(boolean? expr) true]
         [else false]))
 
 (define (variable? expr) (symbol? expr))
@@ -286,7 +287,7 @@ b) Known the reason, I know how to improve, adding a tag to the application expr
       (eval (assignment-value expr) env)
       env))
   (define assignment-variable cadr)
-  (define assigment-value caddr)
+  (define assignment-value caddr)
 
   (put 'assignment? '(expr) assignment?)
   (put 'eval '(assignment env) eval-assignment)
@@ -1030,6 +1031,9 @@ I do not allow to unbound variables in enclosing environment, that may introduce
    (list '= =) (list '< <) (list '> >)
    (list 'display display) (list 'newline newline) ; Exercise 4.30
    (list 'eq? eq?) ; Exercise 4.34
+   (list 'not not) (list 'memq memq)         ; Book 4.3.3
+   (list 'even? even?)                       ; Exercise 4.52
+   (list 'modulo modulo) (list 'floor floor) ; Exercise 4.53
    ))
 
 (define (primitive-procedure-names)
@@ -3972,7 +3976,705 @@ amb tree exhausted
 (sentence (simple-noun-phrase (article the) (noun student)) (verb sleeps))
 #+end_example
 
-* 4.4 Implemeting the `Amb` Evaluator
+* 4.3.3 Implemeting the `Amb` Evaluator
+
+*** exp
+
+#+begin_src racket :noweb-ref eval-amb
+(define (amb? expr) (tagged-list? expr 'amb))
+(define (amb-choices expr) (cdr expr))
+
+(define (ambeval expr env succeed fail)
+  ((analyze expr) env succeed fail))
+
+(define (analyze expr)
+  (cond [(self-evaluating? expr) (analyze-self-evaluating expr)]
+        [(quoted? expr) (analyze-quoted expr)]
+        [(variable? expr) (analyze-variable expr)]
+        [(assignment? expr) (analyze-assignment expr)]
+        [(definition? expr) (analyze-definition expr)]
+        [(if? expr) (analyze-if expr)]
+        [(lambda? expr) (analyze-lambda expr)]
+        [(begin? expr) (analyze-sequence (begin-actions expr))]
+        [(cond? expr) (analyze (cond->if expr))]
+        [(let? expr) (analyze (let->combination expr))]         ; let: Exercise 4.22
+        [(amb? expr) (analyze-amb expr)]
+        [(ramb? expr) (analyze-ramb expr)]                      ; ramb: Exercise 4.50
+        [(if-fail? expr) (analyze-if-fail expr)]                ; if-fail: Exercise 4.52
+        [(permanent-assignment? expr) (analyze-permanent-assignment expr)] ; permanent-set!: Exercise 4.51
+        [(require? expr) (analyze-require expr)]               ; require: Exercise 4.54
+        [(application? expr) (analyze-application expr)]
+        [else (error "Unknown expression type -- ANALYZE" expr)]))
+#+end_src
+
+This below description of type of the analyzed amb expr, may be the best part in this book to make me miss a typed programming language. Use this form to express type is a real humour for me...
+
+#+begin_src racket
+(lambda (env succeed fail)
+  ;; succeed is (lambda (value fail) ...)
+  ;; fail is (lambda () ...)
+...)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb
+(define (analyze-self-evaluating expr)
+  (lambda (env succeed fail)
+    (succeed expr fail)))
+
+(define (analyze-quoted expr)
+  (let ([qval (text-of-quotation expr)])
+    (lambda (env succeed fail)
+      (succeed qval fail))))
+
+(define (analyze-variable expr)
+  (lambda (env succ fail)
+    (succ (lookup-variable-value expr env) fail)))
+
+(define (analyze-lambda expr)
+  (let ([vars (lambda-parameters expr)]
+        [bproc (analyze-sequence (lambda-body expr))])
+    (lambda (env succ fail)
+      (succ (make-procedure vars bproc env) fail))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb
+(define (analyze-if expr)
+  (let ([pproc (analyze (if-predicate expr))]
+        [cproc (analyze (if-consequent expr))]
+        [aproc (analyze (if-alternative expr))])
+    (lambda (env succ fail)
+      (pproc env
+             (lambda (pred-value failp)
+               (if (true? pred-value)
+                   (cproc env succ failp)
+                   (aproc env succ failp)))
+             fail))))
+
+(define (analyze-sequence expr)
+  (define (sequentially a b)
+    (lambda (env succ fail)
+      (a env
+         (lambda (a-value faila)
+           (b env succ faila))
+         fail)))
+  (define (loop first-proc rest-procs)
+    (if (null? rest-procs)
+        first-proc
+        (loop (sequentially first-proc (car rest-procs))
+              (cdr rest-procs))))
+  (let ([procs (map analyze expr)])
+    (if (null? procs)
+        (error "Empty sequence -- ANALYZE"))
+    (loop (car procs) (cdr procs))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb
+(define (analyze-definition expr)
+  (let ([var (definition-variable expr)]
+        [vproc (analyze (definition-value expr))])
+    (lambda (env succ fail)
+      (vproc env
+             (lambda (val failv)
+               (define-variable! var val env)
+               (succ 'ok failv))
+             fail))))
+
+(define (analyze-assignment expr)
+  (let ([var (assignment-variable expr)]
+        [vproc (analyze (assignment-value expr))])
+    (lambda (env succ fail)
+      (vproc env
+             (lambda (val failv)
+               (let ([old-value (lookup-variable-value var env)])
+                 (set-variable-value! var val env)
+                 (succ 'ok
+                       (lambda ()
+                         (set-variable-value! var old-value env)
+                         (failv)))))
+             fail))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb
+(define (analyze-application expr)
+  (let ([fproc (analyze (operator expr))]
+        [aprocs (map analyze (operands expr))])
+    (lambda (env succ fail)
+      (fproc env
+             (lambda (proc failf)
+               (get-args aprocs
+                         env
+                         (lambda (args failg)
+                           (execute-application
+                            proc args succ failg))
+                         failf))
+             fail))))
+
+(define (get-args aprocs env succ fail)
+  (if (null? aprocs)
+      (succ '() fail)
+      ((car aprocs) env
+                    (lambda (arg faila)
+                      (get-args (cdr aprocs)
+                                env
+                                (lambda (args fail-rest)
+                                  (succ (cons arg args)
+                                        fail-rest))
+                                faila))
+                      fail)))
+
+(define (execute-application proc args succ fail)
+  (cond [(primitive-procedure? proc)
+         (succ (apply-primitive-procedure proc args) fail)]
+        [(compound-procedure? proc)
+         ((procedure-body proc)
+          (extend-environment (procedure-parameters proc)
+                              args
+                              (procedure-environment proc))
+          succ fail)]
+        [else (error "Unknown procedure type -- EXECUTE-APPLICATION" proc)]))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb
+(define (analyze-amb expr)
+  (let ([cprocs (map analyze (amb-choices expr))])
+    (lambda (env succ fail)
+      (define (try-next choices)
+        (if (null? choices)
+            (fail)
+            ((car choices) env
+                           succ
+                           (lambda ()
+                             (try-next (cdr choices))))))
+      (try-next cprocs))))
+#+end_src
+
+#+begin_src racket :tangle "4.3.3-repl.rkt" :results none
+;<<eval-core-exp>>
+;<<repl-exp>>
+;<<eval-amb>>
+
+(define the-global-environment (setup-environment))
+
+(define (amb-repl-scope)
+  (define input-prompt ";;; Amb-Eval input:")
+  (define output-prompt ";;; Amb-Eval output:")
+
+  (define (driver-loop)
+    (define (internal-loop try-again)
+      (prompt-for-input input-prompt)
+      (let ([input (read)])
+        (if (eq? input 'try-again)
+            (try-again)
+            (begin
+              (newline)
+              (display ";;; Starting a new problem")
+              (ambeval input
+                       the-global-environment
+                       (lambda (val next-alternative)
+                         (announce-output output-prompt)
+                         (user-print val)
+                         (internal-loop next-alternative))
+                       (lambda ()
+                         (announce-output ";;; There are no more value of")
+                         (user-print input)
+                         (driver-loop)))))))
+    (internal-loop
+     (lambda ()
+       (newline)
+       (display ";;; There is no current problem")
+       (driver-loop))))
+  (driver-loop)
+)
+
+(amb-repl-scope)
+#+end_src
+
+*** exp
+
+The driver loop calls the `fail` handler only when input `try-again` in REPL. Let me make some helper functions to make ambeval system more usable.
+
+#+begin_src racket :noweb-ref eval-amb-test
+;<<eval-core-exp>>
+;<<eval-amb>>
+(set! eval ambeval)
+(define global (setup-environment))
+
+(define (ambeval-handle expr env)
+  (define do-nothing-handle (lambda () '<void>))
+  (ambeval expr
+           env
+           (lambda (val fail-handle)
+             (display val) (newline)
+             fail-handle)
+           (lambda ()
+             (display "Amb tree exhausted: ")
+             (display expr)
+             (newline)
+             do-nothing-handle)))
+
+(define (try-handle fail-handle times)
+  (if (<= times 0) 'ok
+      (try-handle (fail-handle) (- times 1))))
+
+(define (try-ambeval expr env times)
+  (try-handle (ambeval-handle expr env) (- times 1)))
+
+(define amb-fail #f)
+(define (amb-new handle) (set! amb-fail handle))
+(define (amb) (set! amb-fail (amb-fail)))
+#+end_src
+
+#+begin_src racket
+;<<eval-amb-test>>
+(define handle (ambeval-handle '(amb 1 2) global)) ; display 1
+(handle)   ; display 2
+((handle)) ; display 2 and exhausted message
+
+(try-ambeval '(amb 1 2 3) global 4)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+1
+2
+#<procedure:...rg-babel-8Hs4O7.rkt:518:27>
+2
+Amb tree exhausted: (amb 1 2)
+#<procedure:...rg-babel-8Hs4O7.rkt:558:28>
+1
+2
+3
+Amb tree exhausted: (amb 1 2 3)
+done
+#+end_example
+
+#+begin_src racket
+;<<eval-amb-test>>
+(amb-new (ambeval-handle '(amb 1 2) global))
+(amb)
+(amb)
+#+end_src
+
+#+RESULTS:
+: 1
+: 2
+: Amb tree exhausted: (amb 1 2)
+
+*** extra exp: `amb` in `#lang sicp`
+
+Before implementing accompany with book, I took a quick look at the implementation of `#lang sicp` in https://github.com/sicp-lang/sicp/blob/master/sicp/main.rkt.
+
+#+begin_src racket :lang racket :noweb-ref amb-racket
+(require r5rs)
+
+(define (amb-fail) (error "amb tree exhausted"))
+(define (set-amb-fail! x) (set! amb-fail x))
+
+(define-syntax-rule (explore +prev-amb-fail +sk alt)
+  (call/cc
+   (lambda (+fk)
+     (set-amb-fail!
+      (thunk
+       (set-amb-fail! +prev-amb-fail)
+       (+fk 'fail)))
+     (+sk alt))))
+
+(define-syntax-rule (amb alt ...)
+  (let ([+prev-amb-fail amb-fail])
+    (call/cc
+     (lambda (+sk)
+       (explore +prev-amb-fail +sk alt) ...
+       (+prev-amb-fail)))))
+#+end_src
+
+Well, I can't understand this. It is said that the `call/cc` manipulates the context of continuation, capture the control state, though it won't memorize the state of the global variables. So this version is different from the version in Book 4.3.3 on tracebacking with procedures with side effects.
+
+#+begin_src racket :lang racket
+;<<amb-racket>>
+(define x 0)
+(define (id-set-x! v) (set! x v) v)
+(define (show-x) (display "x: ") (displayln x))
+(amb 1 2 (id-set-x! 3)) ; => 1
+(amb (id-set-x! 'x))                ; => x
+(show-x)
+(amb)                               ; => 2
+(show-x) ; display 0 if amb traceback the side effect
+(amb)
+#+end_src
+
+#+RESULTS:
+: 1
+: 'x
+: x: x
+: 2
+: x: x
+: 3
+
+#+begin_src racket
+;<<eval-amb-test>>
+(ambeval-handle '(define x 0) global)
+(ambeval-handle '(define (show-x) (display "x: ") (display x)) global)
+(ambeval-handle '(define (id-set-x! v) (set! x v) v) global)
+(ambeval-handle '(show-x) global)
+(amb-new (ambeval-handle '(amb (id-set-x! 1) 2) global))
+(ambeval-handle '(show-x) global)
+(amb)
+(ambeval-handle '(show-x) global)
+(amb)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+ok
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+ok
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+x: 0#<void>
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+1
+x: 1#<void>
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+2
+x: 0#<void>
+#<procedure:...rg-babel-GIMGNi.rkt:576:11>
+Amb tree exhausted: (amb (id-set-x! 1) 2)
+#+end_example
+
+*** again: Parsing Natural Language
+
+Let me use this version of `amb` to run the codes in Book 4.3.2.
+
+#+begin_src racket :results none :noweb-ref sentence-4-3-3
+;<<eval-amb-test>>
+;<<higher-order>>
+
+(ambeval-handle '(define (require p)
+                   (if (not p) (amb))) global)
+
+(for-each ((F 'partial) ((F 'flip) ambeval-handle) global)
+          (list
+           '(define nouns '(noun student professor cat class))
+           '(define verbs '(verb studies lectures eats sleeps))
+           '(define articles '(article the a))
+           '(define prepositions '(prep for to in by with))
+
+           '(define (parse-sentence)
+              (list 'sentence
+                    (parse-noun-phrase)
+                    (parse-verb-phrase)))
+
+           '(define (parse-simple-noun-phrase)
+              (list 'simple-noun-phrase
+                    (parse-word articles)
+                    (parse-word nouns)))
+
+           '(define (parse-noun-phrase)
+              (define (maybe-extend noun-phrase)
+                (amb noun-phrase
+                     (maybe-extend (list 'noun-phrase
+                                         noun-phrase
+                                         (parse-prepositional-phrase)))))
+              (maybe-extend (parse-simple-noun-phrase)))
+
+           '(define (parse-prepositional-phrase)
+              (list 'prep-phrase
+                    (parse-word prepositions)
+                    (parse-noun-phrase)))
+
+           '(define (parse-verb-phrase)
+              (define (maybe-extend verb-phrase)
+                (amb verb-phrase
+                     (maybe-extend (list 'verb-phrase
+                                         verb-phrase
+                                         (parse-prepositional-phrase)))))
+              (maybe-extend (parse-word verbs)))
+
+           '(define (parse-word word-list)
+              (require (not (null? *unparsed*)))
+              (require (memq (car *unparsed*) (cdr word-list)))
+              (let ([found-word (car *unparsed*)])
+                (set! *unparsed* (cdr *unparsed*))
+                (list (car word-list) found-word)))
+
+           '(define *unparsed* '())
+           '(define (parse input)
+              (set! *unparsed* input)
+              (let ([sent (parse-sentence)])
+                (require (null? *unparsed*))
+                sent))
+           ))
+#+end_src
+
+#+begin_src racket
+;<<sentence-4-3-3>>
+(ambeval-handle '(parse '(the cat eats)) global)
+(ambeval-handle '(parse '(the student with the cat sleeps in the class)) global)
+
+(newline) (display "Two possibilities:") (newline)
+(try-ambeval '(parse '(the professor lectures to the student with the cat)) global 3)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+#<procedure:...rg-babel-rK0QVu.rkt:576:11>
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+ok
+(sentence (simple-noun-phrase (article the) (noun cat)) (verb eats))
+#<procedure:...rg-babel-rK0QVu.rkt:520:27>
+(sentence (noun-phrase (simple-noun-phrase (article the) (noun student)) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))) (verb-phrase (verb sleeps) (prep-phrase (prep in) (simple-noun-phrase (article the) (noun class)))))
+#<procedure:...rg-babel-rK0QVu.rkt:520:27>
+
+Two possibilities:
+(sentence (simple-noun-phrase (article the) (noun professor)) (verb-phrase (verb-phrase (verb lectures) (prep-phrase (prep to) (simple-noun-phrase (article the) (noun student)))) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))))
+(sentence (simple-noun-phrase (article the) (noun professor)) (verb-phrase (verb lectures) (prep-phrase (prep to) (noun-phrase (simple-noun-phrase (article the) (noun student)) (prep-phrase (prep with) (simple-noun-phrase (article the) (noun cat)))))))
+Amb tree exhausted: (parse (quote (the professor lectures to the student with the cat)))
+ok
+#+end_example
+
+*** 4.50
+
+#+begin_src racket :noweb-ref eval-amb
+(define (a-random-element-and-rest lst)
+  (define (pick-to-first heads tails i)
+    (if (= i 0)
+        (cons (car tails) (append (reverse heads) (cdr tails)))
+        (pick-to-first (cons (car tails) heads)
+                       (cdr tails)
+                       (- i 1))))
+  (let ([rand (random (length lst))])
+    (pick-to-first '() lst rand)))
+
+(define (ramb? expr) (tagged-list? expr 'ramb))
+(define (analyze-ramb expr)
+  (let ([cprocs (map analyze (cdr expr))])
+    (lambda (env succ fail)
+      (define (try-again choices)
+        (if (null? choices)
+            (fail)
+            (let ([chosen-rest (a-random-element-and-rest choices)])
+              ((car chosen-rest) env
+                                 succ
+                                 (lambda ()
+                                   (try-again (cdr chosen-rest)))))))
+      (try-again cprocs))))
+#+end_src
+
+#+begin_src racket
+;<<eval-amb-test>>
+(try-ambeval '(ramb 1 2 3) global 3)
+(try-ambeval '(ramb 1 2 3) global 3)
+#+end_src
+
+#+RESULTS:
+: 1
+: 3
+: 2
+: ok
+: 1
+: 3
+: 2
+: ok
+
+*** 4.51
+
+#+begin_src racket :results none :noweb-ref eval-amb
+(define (permanent-assignment? expr) (tagged-list? expr 'permanent-set!))
+(define (analyze-permanent-assignment expr)
+  (lambda (env succ fail)
+    (let ([var (assignment-variable expr)]
+          [vproc (analyze (assignment-value expr))])
+      (vproc env
+             (lambda (val failv)
+               (set-variable-value! var val env)
+               (succ 'ok failv))
+             fail))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-amb-test-util
+(define eval-amb-util
+  (list
+   '(define (require p)
+      (if (not p) (amb)))
+   '(define (an-element-of xs)
+      (require (not (null? xs)))
+      (amb (car xs) (an-element-of (cdr xs))))
+   ))
+(for-each
+ (lambda (expr) (ambeval expr global (lambda (val fail) val) (lambda () (display 'failed))))
+ eval-amb-util)
+#+end_src
+
+#+begin_src racket
+;<<eval-amb-test>>
+;<<eval-amb-test-util>>
+(ambeval-handle '(define count 0) global)
+(try-ambeval '(let ((x (an-element-of '(a b c)))
+                    (y (an-element-of '(a b c))))
+                (permanent-set! count (+ count 1))
+                (require (not (eq? x y)))
+                (list x y count))
+             global 3)
+#+end_src
+
+#+RESULTS:
+: ok
+: #<procedure:...rg-babel-oVxIO8.rkt:590:11>
+: (b a 2)
+: (c a 3)
+: (a b 4)
+: ok
+
+*** 4.52
+
+#+begin_src racket :noweb-ref eval-amb
+(define (if-fail? expr) (tagged-list? expr 'if-fail))
+(define (analyze-if-fail expr)
+  (lambda (env succ fail)
+    (let ([pproc (analyze (if-predicate expr))]
+          [cproc (analyze (if-consequent expr))])
+      (pproc env
+             (lambda (val failp)
+               (succ val failp))
+             (lambda ()
+               (cproc env succ fail))))))
+#+end_src
+
+#+begin_src racket
+;<<eval-amb-test>>
+;<<eval-amb-test-util>>
+(try-ambeval '(if-fail (let ((x (an-element-of '(1 3 5))))
+                         (require (even? x))
+                         x)
+                       'all-odd)
+             global 1)
+
+(try-ambeval '(if-fail (let ((x (an-element-of '(1 3 5 8))))
+                         (require (even? x))
+                         x)
+                       'all-odd)
+             global 1)
+#+end_src
+
+#+RESULTS:
+: all-odd
+: ok
+: 8
+: ok
+
+*** 4.53
+
+I didn't implement the `and` and `or` syntax...
+
+#+begin_src racket
+;<<eval-amb-test>>
+;<<eval-amb-test-util>>
+(for-each (lambda (expr) (ambeval-handle expr global))
+          (list
+           '(define (or a b)
+              (if a true (if b b)))
+           '(define (and a b)
+              (if a
+                  (if b b #f)
+                  #f))
+
+           '(define (prime-sum-pair as bs)
+              (let ([a (an-element-of as)]
+                    [b (an-element-of bs)])
+                (require (prime? (+ a b)))
+                (list a b)))
+
+           '(define (prime? x)
+              (define (iter i)
+                (cond [(> (floor (* i i)) x) #t]
+                      [(= (modulo x i) 0) #f]
+                      [else (iter (+ i 1))]))
+              (if (or (and (not (= x 2)) (even? x))
+                      (= x 1)) #f
+                  (iter 3)))
+           ))
+
+(try-ambeval '(let ((pairs '()))
+                (if-fail (let ((p (prime-sum-pair '(1 3 5 8) '(20 35 110))))
+                           (permanent-set! pairs (cons p pairs))
+                           (amb))
+                         pairs))
+             global 2)
+; => '(23)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: ok
+: ((3 110) (8 35) (3 20))
+: Amb tree exhausted: (let ((pairs (quote ()))) (if-fail (let ((p (prime-sum-pair (quote (1 3 5 8)) (quote (20 35 110))))) (permanent-set! pairs (cons p pairs)) (amb)) pairs))
+: ok
+
+Because there're two layer of fails.
+
+There is another interesting phenomenon in `#lang sicp`:
+
+#+begin_src racket
+(amb 1 3) ; => 1
+(amb 2)   ; => 2
+(amb)     ; => 3
+#+end_src
+
+#+RESULTS:
+: 1
+: 2
+: 3
+
+This is because the `call/cc` saved the context so the `amb` traceback to the before possibility of `amb`.
+
+*** 4.54
+
+#+begin_src racket :noweb-ref eval-amb
+(define (require? expr) (tagged-list? expr 'require))
+(define (require-predicate expr) (cadr expr))
+
+(define (analyze-require expr)
+  (let ([pproc (analyze (require-predicate expr))])
+    (lambda (env succ fail)
+      (pproc env
+             (lambda (valp failp)
+               (if (false? valp)
+                   (failp)
+                   (succ 'ok failp)))
+             fail))))
+#+end_src
+
+#+begin_src racket
+;<<eval-amb-test>>
+(try-ambeval '(define (an-element-of xs)
+                (require (not (null? xs)))
+                (amb (car xs) (an-element-of (cdr xs)))) global 1)
+(try-ambeval '(let ([x (an-element-of '(1 2 3 4))])
+                (require (even? x))
+                x)
+             global 2)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: 2
+: 4
+: ok
 
 * Helper functions
 
@@ -4015,52 +4717,6 @@ amb tree exhausted
 (define (fold-right f lst acc)
   (if (null? lst) acc
       (f (car lst) (fold-right f (cdr lst) acc))))
-#+end_src
-
-#+begin_src racket :noweb-ref stream
-(define stream-car car)
-(define (stream-cdr ss) (force (cdr ss)))
-
-(define (stream-map f . sss)
-  ;<<fold>>
-  (cond [(null? sss) the-empty-stream]
-        [(fold-left (lambda (acc ss) (or (stream-null? ss) acc)) #f sss)
-         the-empty-stream]
-        [else
-         (cons-stream (apply f (map stream-car sss))
-                      (apply stream-map (cons f (map stream-cdr sss))))]))
-(define (add-streams . sss)
-  (apply stream-map (cons + sss)))
-
-(define (stream-filter f ss)
-  (cond [(stream-null? ss) the-empty-stream]
-        [(f (stream-car ss))
-         (cons-stream (stream-car ss)
-                      (stream-filter f (stream-cdr ss)))]
-        [else (stream-filter f (stream-cdr ss))]))
-(define (stream-take ss n)
-  (cond [(stream-null? ss) '()]
-        [(<= n 0) '()]
-        [else (cons (stream-car ss) (stream-take (stream-cdr ss) (- n 1)))]))
-
-(define ones (cons-stream 1 ones))
-(define integers (cons-stream 1 (add-streams ones integers)))
-
-(define (integers-start-from n)
-  (define (iter ss)
-    (if (= n (stream-car ss)) ss
-        (iter (stream-cdr ss))))
-  (iter integers))
-
-(define (divisible? x n)
-  (= (remainder x n) 0))
-
-(define (sieve ss)
-  (cons-stream (stream-car ss)
-               (sieve (stream-filter
-                       (lambda (x) (not (divisible? x (stream-car ss))))
-                       (stream-cdr ss)))))
-(define primes (sieve (integers-start-from 2)))
 #+end_src
 
 * COMMENT Local Variables
