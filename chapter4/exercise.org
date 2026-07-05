@@ -2038,7 +2038,7 @@ Let me see how much time it costs when combining analyzing and evaluating.
           1))
 #+end_src
 
-With applicative order, this runs into endless recusion. While it works well in normal order.
+With applicative order, this runs into endless recursion. While it works well in normal order.
 
 *** 4.26
 
@@ -3341,6 +3341,14 @@ So, the front conditions should filter more conditions. This would be faster:
 :    c:\Users\asu\AppData\Local\Temp\org-babel-o4cwcE.rkt:12:0: multiple-dwelling
 :    body of "c:\Users\asu\AppData\Local\Temp\org-babel-o4cwcE.rkt"
 : (baker 3 cooper 2 fletcher 4 miller 5 smith 1)
+
+**** postscirpt
+
+The Book 4.4.3 mentioned alike question. I think summing up every condtions in each layer is a good indicator (althoght is ignores the different computation cost among the condtions filter).
+
+As for the above 3-layer example, the costs are $27+6+4=37$ v.s. $27+18+4=49$.
+
+And use a rate $r = \frac{\sum_i c_i - n}{c_0 \cdot n}$ or $r = \frac{\sum_{i \rightarrow n} c_i - c_n}{c_0 \cdot n}$ to express effectiency ($c_i$ is the conditions after $i$ filtings, $n$ is the filter number).
 
 *** 4.40
 
@@ -4813,6 +4821,11 @@ c. all people who are supervised by someone who is not in the computer division,
    '(rule (wheel ?person)
           (and (supervisor ?middle-manager ?person)
                (supervisor ?x ?middle-manager)))
+
+   '(rule (outranked-by ?staff-person ?boss)
+          (or (supervisor ?staff-person ?boss)
+              (and (supervisor ?staff-person ?middle-manager)
+                   (outranked-by ?middle-manager ?boss))))
    ))
 #+end_src
 
@@ -4905,22 +4918,18 @@ The person works in the division but does not have a supervisor who works in the
 
 *** 4.60
 
-There may be some trick to remove duplicate results.
-
-But its availability defines by the behavior of `not` expression.
+No. Need another operation to combine two results.
 
 #+begin_src racket :noweb-ref queries-4-60
 (define queries-4-60
   (list
    '(lives-near ?person-1 ?person-2)
 
-   '(and (lives-near ?p1 ?p2)
-         (and (lives-near ?p2 ?p3)
-              (not (same ?p1 ?p3))))
+   '(with (lives-near ?p1 ?p2)
+          (and (lives-near ?p2 ?p3)
+               (not (same ?p1 ?p3))))
    ))
 #+end_src
-
-This trick requires the inner `and` expression returns a `()`, which need the `not` do not reject everything. And the trailing `()` is not good-looking.
 
 *** exp: logic as programs
 
@@ -5051,7 +5060,7 @@ There is another relative question. I tried to implement another version of `son
 
 This is because I can't sure the solving process introduced the short circuit evaluation of `and` and `or`. If not, the son rule may leads into an endless recustion searching.
 
-Similarly, the coexistence of `son` rule and `nuclear-famliy` rule constructs to a mutual recursion structure, which also may leads to a endless recusion.
+Similarly, the coexistence of `son` rule and `nuclear-famliy` rule constructs to a mutual recursion structure, which also may leads to a endless recursion.
 
 This may be why there's no any `(husband ?a ?b)` rule/datum.
 
@@ -5064,7 +5073,110 @@ This may be why there's no any `(husband ?a ?b)` rule/datum.
    ))
 #+end_src
 
-*** 4.4.2 How the Query System Works
+**** postscript
+
+This kind of endless recursion is mentioned in Book 4.4.3.
+
+** 4.4.2 How the Query System Works
+
+No exercises.
+
+** 4.4.3 Is Logic Programming Mathematical Logic?
+
+*** 4.64
+
+#+begin_src racket :results none
+(rule (outranked-by ?staff-person ?boss)
+      (or (supervisor ?staff-person ?boss)
+          (and (outranked-by ?middle-manager ?boss)
+               (supervisor ?staff-person ?middle-manager))))
+#+end_src
+
+The `(outranked-by ?staff-person ?boss)` and `(outranked-by ?middle-manager ?boss)` have the same behavior and their input is the same. So this rule can run into endless recursion.
+
+*** 4.65
+
+#+begin_src racket :results none
+(wheel ?who)
+
+;;; Query results:
+(wheel (Warbucks Oliver))
+(wheel (Bitdiddle Ben))
+(wheel (Warbucks Oliver))
+(wheel (Warbucks Oliver))
+(wheel (Warbucks Oliver))
+#+end_src
+
+Because `wheel` finds in every division.
+
+*** 4.66
+
+#+begin_src racket
+(sum ?amount
+     (and (job ?x (computer programmer))
+          (salary ?x ?amount)))
+
+(accumulation-function <variable>
+                       <query pattern>)
+#+end_src
+
+According to Exercise 4.65, the same entry in database can be matched multiple times. But the `accumulation-function` assume every entry would be matched only once.
+
+But being matched multiple times is inevitable. Only to remember the whether a entry have been matched. It's memorization. I recommendate to use a hash table.
+
+*** 4.67
+
+The endless recursions won't be caused by a simple query to entries in database, because simple queries don't trigger another query. How about compound queries? Not, when the operation do not tries to evaluate another operation, such as `and`, `or`, `not`. The rest is the rules.
+
+For self recursion, one way is to restrict that the input of the inner rule matching can't use the results which is matched by the outter rule. For mutual recursion For mutual recursion, it should remember the calling chain to detect if the rule is evaluates for more than once.
+
+#+TODO: implementation
+
+*** 4.68
+
+#+begin_src racket :noweb-ref rules-4-68
+(define rules-4-68
+  (list
+   '(rule (reverse () ()))
+   '(rule (reverse (?x) (?x)))
+   '(rule (reverse (?x . ?x-tail) ?ys)
+          (and (append-to-form ?y-fronts (?x) ?ys)
+               (reverse ?x-tail ?y-fronts)))
+   ))
+#+end_src
+
+#+begin_src racket :noweb-ref queries-4-68
+(define queries-4-68
+  (list
+   '(reverse (1 2 3) ?x)
+   '(reverse ?x (1 2 3))
+   ))
+#+end_src
+
+*** 4.69
+
+#+begin_src racket :noweb-ref rules-4-69
+(define rules-4-69
+  (list
+   '(rule ((great . ?rel) ?ancestor ?descendant)
+          (or (and (append-to-form () (grandson) ?rel)
+                   (grandson ?ancestor ?m)
+                   (son ?m ?descendant))
+              (and (append-to-form (great) ?subrel ?rel)
+                   (son ?ancestor ?m)
+                   (?subrel ?m ?descendant))))
+   ))
+#+end_src
+
+#+begin_src racket :noweb-ref queries-4-69
+(define queries-4-69
+  (list
+   '(great grandson ?g ?ggs)
+   '(?relationship Adam Irad)
+   ))
+#+end_src
+
+*** 4.4.4 Implementing the Query System
 
 * Helper functions
 
