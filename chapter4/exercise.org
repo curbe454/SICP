@@ -1223,14 +1223,40 @@ Below implement a `map` in the evaluation system, the `my-apply` will strip the 
 : ok
 : 24
 
+#+begin_src racket
+user-initial-environment
+#+end_src
+
+#+RESULTS:
+: c:\Users\asu\AppData\Local\Temp\org-babel-XuRFkU.rkt:4:0: user-initial-environment: unbound identifier
+:   in: user-initial-environment
+:   location...:
+:    c:\Users\asu\AppData\Local\Temp\org-babel-XuRFkU.rkt:4:0
+
+`user-initial-environment` is not deinfed in `#lang sicp`.
+
+Here about the `user-initial-environment` in MIT Scheme: https://groups.csail.mit.edu/mac/projects/info/schemedocs/ref-manual/html/scheme_126.html.
+
 I know how to use this at https://docs.racket-lang.org/r5rs/r5rs-std/r5rs-Z-H-9.html#%25_idx_600.
 
 #+begin_src racket
+(define x 777)
+
 (eval '1 (null-environment 5))
+;(eval 'cons (null-environment 5))          ; this would raise error since it's null environment
+(eval 'cons (scheme-report-environment 5))
+;(eval 'x (scheme-report-environment 5))    ; x is not defined in this new environment
+;(eval 'x (interaction-environment))        ; this is only usable in repl
+
+(define env (null-environment 5))
+(eval (list 'define '+ +) env) ; import `+` to the null environment
+(eval '(+ 1 2) env)
 #+end_src
 
 #+RESULTS:
 : 1
+: #<procedure:mcons>
+: 3
 
 *** 4.15
 
@@ -1881,7 +1907,7 @@ In this case the two version analyze to the same result.
 
 *** 4.24
 
-**** introspection
+**** postscript
 
 I forgot that there is a procedure `runtime` in `#lang sicp`.
 
@@ -2479,12 +2505,12 @@ To avoid this question, let me set the rule that the `define-with-lazy` cannot d
 (define definition-with-lazy-value caddr)
 
 (define declaration-procedure-name car)
-(define declaration-varialbes-with-tags cdr)
+(define declaration-variables-with-tags cdr)
 
 (define (definition-with-lazy-name expr)
   (declaration-procedure-name (definition-with-lazy-declaration expr)))
 (define (definition-with-lazy-variables-with-tags expr)
-  (declaration-varialbes-with-tags (definition-with-lazy-declaration expr)))
+  (declaration-variables-with-tags (definition-with-lazy-declaration expr)))
 
 (define (parameter-lazy? param)
   (and (list? param) (list? (cdr param)) (eq? (cadr param) 'lazy)))
@@ -3879,7 +3905,7 @@ I uncarefully run the code and my computer get stucked... For a few seconds.
   (maybe-extend (parse-word verbs)))
 #+end_src
 
-Comparing the two, the original version saves the result of `(parse-word verbs)` into a varialbe `verb-phrase`, but this version do not. So every time calls the `parse-verb-phrase-4-47`, the expr will be computed. `amb` choose left then failed, so goto the right; but the right needs to choose left again. This makes endless recursion, no matter the choosing order of `amb`.
+Comparing the two, the original version saves the result of `(parse-word verbs)` into a variable `verb-phrase`, but this version do not. So every time calls the `parse-verb-phrase-4-47`, the expr will be computed. `amb` choose left then failed, so goto the right; but the right needs to choose left again. This makes endless recursion, no matter the choosing order of `amb`.
 
 *** 4.48
 
@@ -4694,7 +4720,7 @@ Now I will deal with it.
 
 *** exp
 
-#+begin_src racket :noweb-ref database
+#+begin_src racket :noweb-ref database-company
 (define database-company
   (list
    '(address (Bitdiddle Ben) (Slumerville (Ridge Road) 10))
@@ -4841,7 +4867,7 @@ b.  all people who can replace someone who is being paid more than they are, tog
    '(rule (can-replace ?person ?successor)
           (and (job ?person ?person-job)
                (job ?successor ?successor-job)
-               (can-do-job ?successor-job ?person-job)
+               (can-do-job ?person-job ?successor-job)
                (not (same ?person ?successor))))
    ))
 #+end_src
@@ -4851,12 +4877,14 @@ b.  all people who can replace someone who is being paid more than they are, tog
   (list
    '(can-replace (Fect Cy D) ?anyone)
 
-   '(and (who-can-replace ?person ?succesor)
-         (salaries ?person ?person-salaries)
-         (salaries ?successor ?successor-salaries)
-         (lisp-value < ?successor-salaries ?person-salaries))
+   '(and (can-replace ?person ?successor)
+         (salary ?person ?person-salaries)
+         (salary ?successor ?successor-salaries)
+         (lisp-value < ?person-salaries ?successor-salaries))
    ))
 #+end_src
+
+It's very easy to make mistake by misspelling.
 
 *** 4.58
 
@@ -4880,9 +4908,15 @@ The person works in the division but does not have a supervisor who works in the
    ))
 #+end_src
 
+**** postscript
+
+The answer is wrong. Because I misunderstood the functionality of `not`. But it's blame to the Book (See footnote in Book 4.4.1).
+
+See correct answer in below notes of section 4.4.4.
+
 *** 4.59
 
-#+begin_src racket :noweb-ref database
+#+begin_src racket :noweb-ref database-meetings
 (define database-meetings
   (list
    '(meeting accounting (Monday 9am))
@@ -4910,9 +4944,9 @@ The person works in the division but does not have a supervisor who works in the
 (define rules-4-59
   (list
    '(rule (meeting-time ?person ?day-and-time)
-          (and (meeting whole-company ?day-and-time)
-               (job ?person (?division . ?role))
-               (meeting ?division ?day-and-time)))
+          (or (meeting whole-company ?day-and-time)
+              (and (job ?person (?division . ?role))
+                   (meeting ?division ?day-and-time))))
    ))
 #+end_src
 
@@ -5007,6 +5041,12 @@ I haven't thought move the rule name to another position and multiple rule names
 
 The `(last-pair ?x (3))` will work because it match the pattern of `(rule (last-pair (?x) ?x))`. In the rule it knows the `?x` is `(3)`, so the `(?x)` is `((3))`.
 
+**** postscript
+
+This is wrong because of misunderstanding of unification. The queries to the rule would fall into endless recursion by unify `(?pickout . ?rest)` with  `(?rest)`.
+
+See my correct answer in below section 4.4.4.
+
 *** 4.63
 
 #+begin_src racket :noweb-ref database-4-63
@@ -5069,13 +5109,15 @@ This may be why there's no any `(husband ?a ?b)` rule/datum.
   (list
    '(grandson Cain ?who)
    '(son Lamech ?who)
-   '(grandson Methushael)
+   '(grandson Methushael ?who)
    ))
 #+end_src
 
 **** postscript
 
 This kind of endless recursion is mentioned in Book 4.4.3.
+
+The above answer is wrong. Because I forgot that the rule can be called recursively.
 
 ** 4.4.2 How the Query System Works
 
@@ -5153,6 +5195,12 @@ For self recursion, one way is to restrict that the input of the inner rule matc
    ))
 #+end_src
 
+**** postscript
+
+The above answer is wrong because in the sentense `(append-to-form ?y-fronts (?x) ?ys)` there can be two free variables (`?y-fronts` and `?ys`) so that the system cannot find out any result.
+
+My correct answer see below in section 4.4.4.
+
 *** 4.69
 
 #+begin_src racket :noweb-ref rules-4-69
@@ -5171,12 +5219,1189 @@ For self recursion, one way is to restrict that the input of the inner rule matc
 #+begin_src racket :noweb-ref queries-4-69
 (define queries-4-69
   (list
-   '(great grandson ?g ?ggs)
+   '((great grandson) ?g ?ggs)
    '(?relationship Adam Irad)
+   '(?relationship Adam Mehujael)
    ))
 #+end_src
 
-*** 4.4.4 Implementing the Query System
+**** postscript
+
+This above answer is wrong. Because in the extra `?subrel` matches a more `great` in the seconed `and` query.
+
+See my correct answer below in section 4.4.4.
+
+** 4.4.4 Implementing the Query System
+
+It comes! The 4th level direcotry!
+
+*** 4.4.4.1 The Driver Loop and Instantiation
+
+#+begin_src racket :noweb-ref repl-query
+(define input-prompt ";;; Query input:")
+(define output-prompt ";;; Query results:")
+
+(define (prompt-for-input string)
+  (newline) (newline) (display string) (newline))
+
+(define (query-driver-loop)
+  (prompt-for-input input-prompt)
+  (let ([q (query-syntax-process (read))])
+    (cond [(assertion-to-be-added? q)
+           (add-rule-or-assertion! (add-assertion-body q))
+           (newline)
+           (display "Assertion added to data base.")
+           (query-driver-loop)]
+          [else
+           (newline)
+           (display output-prompt)
+           (display-stream
+            (stream-map
+             (lambda (frame)
+               (instantiate q
+                            frame
+                            (lambda (v f)
+                              (contract-question-mark v))))
+             (qeval q (singleton-stream '()))))
+           (query-driver-loop)])))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (instantiate expr frame unbound-var-handler)
+  (define (copy expr)
+    (cond [(var? expr)
+           (let ([binding (binding-in-frame expr frame)])
+             (if binding
+                 (copy (binding-value binding))
+                 (unbound-var-handler expr frame)))]
+          [(pair? expr)
+           (cons (copy (car expr)) (copy (cdr expr)))]
+          [else expr]))
+  (copy expr))
+#+end_src
+
+*** 4.4.4.2 The Evaluator
+
+#+begin_src racket :noweb-ref eval-query
+(define (qeval query frame-stream)
+  (let ([qproc (get (type query) 'qeval)])
+    (if qproc
+        (qproc (contents query) frame-stream)
+        (simple-query query frame-stream))))
+
+(define (simple-query query-pattern frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (stream-append-delayed
+      (find-assertions query-pattern frame)
+      (delay (apply-rules query-pattern frame))))
+   frame-stream))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (conjoin conjuncts frame-stream)
+  (if (empty-conjunction? conjuncts)
+      frame-stream
+      (conjoin (rest-conjuncts conjuncts)
+               (qeval (first-conjunct conjuncts)
+                      frame-stream))))
+
+(put 'and 'qeval conjoin)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (disjoin disjuncts frame-stream)
+  (if (empty-disjunction? disjuncts)
+      the-empty-stream
+      (interleave-delayed
+       (qeval (first-disjunct disjuncts) frame-stream)
+       (delay (disjoin (rest-disjuncts disjuncts)
+                       frame-stream)))))
+
+(put 'or 'qeval disjoin)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (negate operands frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (if (stream-null? (qeval (negated-query operands)
+                              (singleton-stream frame)))
+         (singleton-stream frame)
+         the-empty-stream))
+   frame-stream))
+
+(put 'not 'qeval negate)
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (lisp-value call frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (if (execute
+          (instantiate
+           call
+           frame
+           (lambda (v f)
+             (error "Unknown pat var -- LISP-VALUE" v))))
+          (singleton-stream frame)
+          the-empty-stream))
+   frame-stream))
+
+(put 'lisp-value 'qeval lisp-value)
+#+end_src
+
+Note that `user-initial-environment` is not defined in `#lang sicp`.
+
+#+begin_src racket :noweb-ref eval-query
+(define user-initial-environment (scheme-report-environment 5))
+
+(define (execute expr)
+  (apply (eval (predicate expr) user-initial-environment)
+         (args expr)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (always-true ignore frame-stream) frame-stream)
+
+(put 'always-true 'qeval always-true)
+#+end_src
+
+*** 4.4.4.3 Finding Assertions by Pattern Matching
+
+#+begin_src racket :noweb-ref eval-query
+(define (find-assertions pattern frame)
+  (stream-flatmap
+   (lambda (datum)
+     (check-an-assertion datum pattern frame))
+   (fetch-assertions pattern frame)))
+
+(define (check-an-assertion assertion query-pat query-frame)
+  (let ([match-result
+         (pattern-match query-pat assertion query-frame)])
+    (if (eq? match-result 'failed)
+        the-empty-stream
+        (singleton-stream match-result))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (pattern-match pat dat frame)
+  (cond [(eq? frame 'failed) 'failed]
+        [(equal? pat dat) frame]
+        [(var? pat) (extend-if-consist pat dat frame)]
+        [(and (pair? pat) (pair? dat))
+         (pattern-match (cdr pat)
+                        (cdr dat)
+                        (pattern-match (car pat)
+                                       (car dat)
+                                       frame))]
+        [else 'failed]))
+
+(define (extend-if-consist var dat frame)
+  (let ([binding (binding-in-frame var frame)])
+    (if binding
+        (pattern-match (binding-value binding) dat frame)
+        (extend var dat frame))))
+#+end_src
+
+**** patterns with dotted tails
+
+I find that I don't understand what is the dot syntax now.
+
+#+begin_src lisp :results none
+repl.rkt> (read)
+(a . b)
+'(a . b)
+repl.rkt> (car (read))
+(a . b)
+'a
+repl.rkt> (cdr (read))
+(a . b)
+'b
+repl.rkt> (cdr (read))
+(a . (b c))
+'(b c)
+#+end_src
+
+*** 4.4.4.4 Rules and Unification
+
+#+begin_src racket :noweb-ref eval-query
+(define (apply-rules pattern frame)
+  (stream-flatmap (lambda (rule)
+                    (apply-a-rule rule pattern frame))
+                  (fetch-rules pattern frame)))
+
+(define (apply-a-rule rule query-pattern query-frame)
+  (let ([clean-rule (rename-variables-in rule)])
+    (let ([unify-result
+           (unify-match query-pattern
+                        (conclusion clean-rule)
+                        query-frame)])
+      (if (eq? unify-result 'failed)
+          the-empty-stream
+          (qeval (rule-body clean-rule)
+                 (singleton-stream unify-result))))))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (rename-variables-in rule)
+  (let ([rule-application-id (new-rule-application-id)])
+    (define (tree-walk expr)
+      (cond [(var? expr)
+             (make-new-variable expr rule-application-id)]
+            [(pair? expr)
+             (cons (tree-walk (car expr))
+                   (tree-walk (cdr expr)))]
+            [else expr]))
+    (tree-walk rule)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (unify-match p1 p2 frame)
+  (cond [(eq? frame 'failed) 'failed]
+        [(equal? p1 p2) frame]
+        [(var? p1) (extend-if-possible p1 p2 frame)]
+        [(var? p2) (extend-if-possible p2 p1 frame)]
+        [(and (pair? p1) (pair? p2))
+         (unify-match (cdr p1)
+                      (cdr p2)
+                      (unify-match (car p1)
+                                   (car p2)
+                                   frame))]
+        [else 'failed]))
+
+(define (extend-if-possible var val frame)
+  (let ([binding (binding-in-frame var frame)])
+    (cond [binding
+           (unify-match
+            (binding-value binding) val frame)]
+          [(var? val)
+           (let ([binding (binding-in-frame val frame)])
+             (if binding
+                 (unify-match
+                  var (binding-value binding) frame)
+                 (extend var val frame)))]
+          [(depends-on? val var frame) 'failed]
+          [else (extend var val frame)])))
+
+(define (depends-on? expr var frame)
+  (define (tree-walk e)
+    (cond [(var? e)
+           (if (equal? var e)
+               true
+               (let ([b (binding-in-frame e frame)])
+                 (if b
+                     (tree-walk (binding-value b))
+                     false)))]
+          [(pair? e)
+           (or (tree-walk (car e))
+               (tree-walk (cdr e)))]
+          [else false]))
+  (tree-walk expr))
+#+end_src
+
+*** 4.4.4.5 Maintaining the Database
+
+#+begin_src racket :noweb-ref eval-query
+(define THE-ASSERTIONS the-empty-stream)
+(define (get-all-assertions) THE-ASSERTIONS)
+
+(define (fetch-assertions pattern frame)
+  (if (use-index? pattern)
+      (get-indexed-assertions pattern)
+      (get-all-assertions)))
+
+(define (get-indexed-assertions pattern)
+  (get-stream (index-key-of pattern) 'assertion-stream))
+
+(define (get-stream key1 key2)
+  (get-or key1 key2 the-empty-stream))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define THE-RULES the-empty-stream)
+(define (get-all-rules) THE-RULES)
+
+(define (fetch-rules pattern frame)
+  (if (use-index? pattern)
+      (get-indexed-rules pattern)
+      (get-all-rules)))
+
+(define (get-indexed-rules pattern)
+  (stream-append
+   (get-stream (index-key-of pattern) 'rule-stream)
+   (get-stream '? 'rule-stream)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (add-rule-or-assertion! assertion)
+  (if (rule? assertion)
+      (add-rule! assertion)
+      (add-assertion! assertion)))
+
+(define (add-assertion! assertion)
+  (store-assertion-in-index assertion)
+  (let ([old-assertions THE-ASSERTIONS])
+    (set! THE-ASSERTIONS (cons-stream assertion old-assertions))
+    'ok))
+
+(define (add-rule! rule)
+  (store-rule-in-index rule)
+  (let ([old-rules THE-RULES])
+    (set! THE-RULES (cons-stream rule old-rules))
+    'ok))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (store-assertion-in-index assertion)
+  (if (indexable? assertion)
+      (let ([key (index-key-of assertion)])
+        (let ([current-assertion-stream
+               (get-stream key 'assertion-stream)])
+          (put key
+               'assertion-stream
+               (cons-stream assertion
+                            current-assertion-stream))))))
+
+(define (store-rule-in-index rule)
+  (let ([pattern (conclusion rule)])
+    (if (indexable? pattern)
+        (let ([key (index-key-of pattern)])
+          (let ([current-rule-stream
+                 (get-stream key 'rule-stream)])
+            (put key
+                 'rule-stream
+                 (cons-stream rule
+                              current-rule-stream)))))))
+
+(define (indexable? pat)
+  (or (constant-symbol? (car pat))
+      (var? (car pat))))
+
+(define (index-key-of pat)
+  (let ([key (car pat)])
+    (if (var? key) '? key)))
+
+(define (use-index? pat)
+  (constant-symbol? (car pat)))
+#+end_src
+
+**** 4.70
+
+#+begin_src racket :results none
+(define (add-assertion! assertion)
+  (store-assertion-in-index assertion)
+  (set! THE-ASSERTIONS
+        (cons-stream assertion THE-ASSERTIONS))
+  'ok)
+#+end_src
+
+This makes a circular stream and loses the old values.
+
+#+begin_src racket
+;<<stream>>
+(define x (cons-stream 1 the-empty-stream))
+
+(let ([y x])
+  (set! x (cons-stream 2 y)))
+(stream-take x 5)
+
+(set! x (cons-stream 3 x))
+(stream-take x 5)
+#+end_src
+
+#+RESULTS:
+: (2 1)
+: (3 3 3 3 3)
+
+In box model:
+
+#+begin_src
+x -> [1] -> nil
+
+y -> [1] -> nil
+x -> [2] -> (y)  ; x -> [2] -> [1] -> nil
+
+x -> [3] -> (x)  ; x -> [3] -> [3] -> (x)  ; x -> [3] -> [3] -> [3] -> ...
+#+end_src
+
+*** 4.4.4.6 Stream Operations
+
+#+begin_src racket :noweb-ref stream
+(define (stream-append-delayed s1 delayed-s2)
+  (if (stream-null? s1)
+      (force delayed-s2)
+      (cons-stream
+       (stream-car s1)
+       (stream-append-delayed (force delayed-s2)
+                              (delay (stream-cdr s1))))))
+
+(define (interleave-delayed s1 delayed-s2)
+  (if (stream-null? s1)
+      (force delayed-s2)
+      (cons-stream
+       (stream-car s1)
+       (interleave-delayed (force delayed-s2)
+                           (delay (stream-cdr s1))))))
+
+(define (stream-flatmap proc s)
+  (flatten-stream (stream-map proc s)))
+
+(define (flatten-stream sss)
+  (if (stream-null? sss)
+      the-empty-stream
+      (interleave-delayed
+       (stream-car sss)
+       (delay (flatten-stream (stream-cdr sss))))))
+
+(define (singleton-stream x)
+  (cons-stream x the-empty-stream))
+#+end_src
+
+*** 4.4.4.7 Query Syntax Procedures
+
+#+begin_src racket :noweb-ref eval-query
+(define (type expr)
+  (if (pair? expr)
+      (car expr)
+      (error "Unknown expression TYPE" expr)))
+
+(define (contents expr)
+  (if (pair? expr)
+      (cdr expr)
+      (error "Unknown expression CONTENTS" expr)))
+
+(define (assertion-to-be-added? expr)
+  (eq? (type expr) 'assert!))
+
+(define (add-assertion-body expr)
+  (car (contents expr)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define empty-conjunction? null?)
+(define first-conjunct car)
+(define rest-conjuncts cdr)
+
+(define empty-disjunction? null?)
+(define first-disjunct car)
+(define rest-disjuncts cdr)
+
+(define (negated-query expr) (car expr))
+(define (predicate expr) (car expr))
+(define (args expr) (cdr expr))
+
+(define (rule? statement)
+  (tagged-list? statement 'rule))
+(define (conclusion rule) (cadr rule))
+(define (rule-body rule)
+  (if (null? (cddr rule))
+      '(always-true)
+      (caddr rule)))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define (query-syntax-process expr)
+  (map-over-symbols expand-question-mark expr))
+
+(define (map-over-symbols proc expr)
+  (cond [(pair? expr)
+         (cons (map-over-symbols proc (car expr))
+               (map-over-symbols proc (cdr expr)))]
+        [(symbol? expr) (proc expr)]
+        [else expr]))
+
+(define (expand-question-mark symbol)
+  (let ([chars (symbol->string symbol)])
+    (if (string=? (substring chars 0 1) "?")
+        (list '?
+              (string->symbol
+               (substring chars 1 (string-length chars))))
+        symbol)))
+
+(define (contract-question-mark variable)
+  (string->symbol
+   (string-append "?"
+                  (if (number? (cadr variable))
+                      (string-append (symbol->string (caddr variable))
+                                     "-"
+                                     (number->string (cadr variable)))
+                      (symbol->string (cadr variable))))))
+#+end_src
+
+Now I can speak that this layer of abstraction is not intuitive, or violate people's natrual cognition.
+
+#+begin_src racket :noweb-ref eval-query
+(define (var? expr)
+  (tagged-list? expr '?))
+
+(define (constant-symbol? expr) (symbol? expr))
+
+(define (make-binding variable value)
+  (cons variable value))
+(define binding-variable car)
+(define binding-value cdr)
+
+(define (binding-in-frame variable name)
+  (assoc variable name))
+
+(define (extend variable value frame)
+  (cons (make-binding variable value) frame))
+#+end_src
+
+#+begin_src racket :noweb-ref eval-query
+(define rule-counter 0)
+(define (new-rule-application-id)
+  (set! rule-counter (+ 1 rule-counter))
+  rule-counter)
+(define (make-new-variable var rule-application-id)
+  (cons '? (cons rule-application-id (cdr var))))
+#+end_src
+
+*** exp: run above examples in 4.4
+
+#+begin_src racket :noweb-ref eval-query-test
+;<<get-put>>
+;<<eval-query>>
+;<<stream>>
+(define (tagged-list? expr tag)
+  (if (pair? expr) (eq? (car expr) tag)
+      false))
+
+(define (load-entries-by f exprs)
+  (map (lambda (assertion-expr)
+         (add-rule-or-assertion!
+          (add-assertion-body
+           (query-syntax-process
+            (f assertion-expr)))))
+       exprs))
+
+(define (load-plain-database exprs)
+  (define (format-result res)
+    ;<<fold>>
+    (let ([err (fold-right (lambda (e acc) (if (eq? e 'ok) acc
+                                               (cons e acc)))
+                           res '())])
+      (if (null? err) 'ok err)))
+  (format-result
+   (load-entries-by (lambda (e) (list 'assertion e)) exprs)))
+
+(define (qeval-stream expr)
+  (let ([q (query-syntax-process expr)])
+    (stream-map
+      (lambda (frame)
+        (instantiate q
+                     frame
+                     (lambda (v f)
+                       (contract-question-mark v))))
+      (qeval q (singleton-stream '())))))
+
+(define (qeval-display expr)
+  (display-stream (qeval-stream expr)))
+
+(define (qeval-display-formatted expr)
+  (display "$ ") (display expr) (newline)
+  (qeval-display expr))
+#+end_src
+
+#+begin_src racket :noweb-ref database-company
+(load-plain-database database-company)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+the-global-table
+(get-all-assertions)
+#+end_src
+
+#+RESULTS:
+: ok
+: #hash(((lisp-value *hash-dimention-divisor* qeval) . #<procedure:lisp-value>) ((supervisor *hash-dimention-divisor* assertion-stream) . ((supervisor (Aull DeWitt) (Warbucks Oliver)) . #<promise>)) ((always-true *hash-dimention-divisor* qeval) . #<procedure:always-true>) ((address *hash-dimention-divisor* assertion-stream) . ((address (Aull DeWitt) (Slumerville (Onion Square) 5)) . #<promise>)) ((not *hash-dimention-divisor* qeval) . #<procedure:negate>) ((job *hash-dimention-divisor* assertion-stream) . ((job (Aull DeWitt) (administration secretary)) . #<promise>)) ((and *hash-dimention-divisor* qeval) . #<procedure:conjoin>) ((or *hash-dimention-divisor* qeval) . #<procedure:disjoin>) ((can-do-job *hash-dimention-divisor* assertion-stream) . ((can-do-job (administration secretary) (administration big wheel)) . #<promise>)) ((salary *hash-dimention-divisor* assertion-stream) . ((salary (Aull DeWitt) 25000) . #<promise>)))
+: ((can-do-job (administration secretary) (administration big wheel)) . #<promise>)
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+(qeval-display '(can-do-job ?who ?whom))
+(qeval-display '(salary ?who 25000))
+(qeval-display '(can-do-job . ?any-message))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+(can-do-job (administration secretary) (administration big wheel))
+(can-do-job (computer programmer) (computer programmer trainee))
+(can-do-job (computer wizard) (computer technician))
+(can-do-job (computer wizard) (computer programmer))
+(salary (Aull DeWitt) 25000)
+(salary (Tweakit Lem E) 25000)
+(can-do-job (administration secretary) (administration big wheel))
+(can-do-job (computer programmer) (computer programmer trainee))
+(can-do-job (computer wizard) (computer technician))
+(can-do-job (computer wizard) (computer programmer))
+#+end_example
+
+#+begin_src racket :results none :tangle "4.4.4-repl.rkt"
+;<<eval-query-test>>
+;<<database-company>>
+;<<repl-query>>
+(query-driver-loop)
+#+end_src
+
+**** results: 4.55
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<queries-4-55>>
+(for-each qeval-display-formatted queries-4-55)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (supervisor ?who (Bitdiddle Ben))
+(supervisor (Tweakit Lem E) (Bitdiddle Ben))
+(supervisor (Fect Cy D) (Bitdiddle Ben))
+(supervisor (Hacker Alyssa P) (Bitdiddle Ben))
+$ (job ?who (accounting . ?job))
+(job (Cratchet Robert) (accounting scrivener))
+(job (Scrooge Eben) (accounting chief accountant))
+$ (address ?who (Slumerville . ?where))
+(address (Aull DeWitt) (Slumerville (Onion Square) 5))
+(address (Reasoner Louis) (Slumerville (Pine Tree Road) 80))
+(address (Bitdiddle Ben) (Slumerville (Ridge Road) 10))
+#+end_example
+
+**** results: 4.56
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<queries-4-56>>
+(for-each qeval-display-formatted queries-4-56)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (and (supervisor ?who (Bitdiddle Ben)) (address ?who . ?other-info))
+(and (supervisor (Tweakit Lem E) (Bitdiddle Ben)) (address (Tweakit Lem E) (Boston (Bay State Road) 22)))
+(and (supervisor (Fect Cy D) (Bitdiddle Ben)) (address (Fect Cy D) (Cambridge (Ames Street) 3)))
+(and (supervisor (Hacker Alyssa P) (Bitdiddle Ben)) (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78)))
+$ (and (salary ?person ?amount) (salary (Bitdiddle Ben) ?base) (lisp-value < ?amount ?base))
+(and (salary (Aull DeWitt) 25000) (salary (Bitdiddle Ben) 60000) (lisp-value < 25000 60000))
+(and (salary (Cratchet Robert) 18000) (salary (Bitdiddle Ben) 60000) (lisp-value < 18000 60000))
+(and (salary (Reasoner Louis) 30000) (salary (Bitdiddle Ben) 60000) (lisp-value < 30000 60000))
+(and (salary (Tweakit Lem E) 25000) (salary (Bitdiddle Ben) 60000) (lisp-value < 25000 60000))
+(and (salary (Fect Cy D) 35000) (salary (Bitdiddle Ben) 60000) (lisp-value < 35000 60000))
+(and (salary (Hacker Alyssa P) 40000) (salary (Bitdiddle Ben) 60000) (lisp-value < 40000 60000))
+$ (and (supervisor ?who ?leader) (not (job ?leader (computer . ?any-role))) (job ?leader ?job))
+(and (supervisor (Aull DeWitt) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+(and (supervisor (Cratchet Robert) (Scrooge Eben)) (not (job (Scrooge Eben) (computer . ?any-role))) (job (Scrooge Eben) (accounting chief accountant)))
+(and (supervisor (Scrooge Eben) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+(and (supervisor (Bitdiddle Ben) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+#+end_example
+
+**** results: exp: rules
+
+#+begin_src racket :noweb-ref rules-exp
+(load-plain-database rules-exp)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp>>
+(display-stream (get-all-rules))
+
+(qeval-display '(same 1 1))
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: (rule (outranked-by (? staff-person) (? boss)) (or (supervisor (? staff-person) (? boss)) (and (supervisor (? staff-person) (? middle-manager)) (outranked-by (? middle-manager) (? boss)))))
+: (rule (wheel (? person)) (and (supervisor (? middle-manager) (? person)) (supervisor (? x) (? middle-manager))))
+: (rule (lives-near (? person-1) (? person-2)) (and (address (? person-1) ((? town) ? rest-1)) (address (? person-2) ((? town) ? rest-2)) (not (same (? person-1) (? person-2)))))
+: (rule (same (? x) (? x)))
+: (same 1 1)
+
+**** results: 4.57
+
+#+begin_src racket :noweb-ref rules-4-57
+(load-plain-database rules-4-57)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp>>
+;<<rules-4-57>>
+;<<queries-4-57>>
+(for-each qeval-display-formatted queries-4-57)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: $ (can-replace (Fect Cy D) ?anyone)
+: (can-replace (Fect Cy D) (Reasoner Louis))
+: $ (and (can-replace ?person ?successor) (salary ?person ?person-salaries) (salary ?successor ?successor-salaries) (lisp-value < ?person-salaries ?successor-salaries))
+: (and (can-replace (Aull DeWitt) (Warbucks Oliver)) (salary (Aull DeWitt) 25000) (salary (Warbucks Oliver) 150000) (lisp-value < 25000 150000))
+
+**** results: 4-58
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp>>
+;<<rules-4-58>>
+;<<queries-4-58>>
+(load-plain-database rules-4-58)
+(for-each qeval-display-formatted queries-4-58)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: $ (and (big-shot ?somebody ?anywhere) (job ?somebody ?job))
+: (and (big-shot (Warbucks Oliver) administration) (job (Warbucks Oliver) (administration big wheel)))
+: (and (big-shot (Warbucks Oliver) administration) (job (Warbucks Oliver) (administration big wheel)))
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp>>
+;<<queries-4-58>>
+(define rules-4-58
+  (list
+   '(rule (big-shot ?somebody ?division)
+          (and (supervisor ?inferior ?somebody)
+               (job ?somebody (?division . ?role))
+               (job ?inferior (?division . ?any-role))
+               (not (is-middle-manager ?somebody ?division))))
+   '(rule (is-middle-manager ?middle ?division)
+          (and (supervisor ?inferior ?middle)
+               (supervisor ?middle ?superior)
+               (job ?middle (?division . ?role))
+               (job ?inferior (?division . ?other-role))
+               (job ?superior (?division . ?another-role))))))
+(load-plain-database rules-4-58)
+(for-each qeval-display-formatted queries-4-58)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: $ (and (big-shot ?somebody ?anywhere) (job ?somebody ?job))
+: (and (big-shot (Warbucks Oliver) administration) (job (Warbucks Oliver) (administration big wheel)))
+: (and (big-shot (Scrooge Eben) accounting) (job (Scrooge Eben) (accounting chief accountant)))
+: (and (big-shot (Bitdiddle Ben) computer) (job (Bitdiddle Ben) (computer wizard)))
+: (and (big-shot (Bitdiddle Ben) computer) (job (Bitdiddle Ben) (computer wizard)))
+: (and (big-shot (Bitdiddle Ben) computer) (job (Bitdiddle Ben) (computer wizard)))
+
+**** results: 5.59
+
+#+begin_src racket :noweb-ref database-meetings
+(load-plain-database database-meetings)
+#+end_src
+
+#+begin_src racket :noweb-ref rules-4-59
+(load-plain-database rules-4-59)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<database-meetings>>
+;<<rules-4-59>>
+;<<queries-4-59>>
+(for-each qeval-display-formatted queries-4-59)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: $ (meeting ?division (Friday . ?time-details))
+: (meeting administration (Friday 1pm))
+: $ (meeting-time (Hacker Alyssa P) (Wednesday ?time))
+: (meeting-time (Hacker Alyssa P) (Wednesday 4pm))
+: (meeting-time (Hacker Alyssa P) (Wednesday 3pm))
+
+**** results: 4.60
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<database-meetings>>
+;<<rules-exp>>
+(qeval-display-formatted '(lives-near ?p1 ?p2))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+ok
+$ (lives-near ?p1 ?p2)
+(lives-near (Aull DeWitt) (Reasoner Louis))
+(lives-near (Aull DeWitt) (Bitdiddle Ben))
+(lives-near (Reasoner Louis) (Aull DeWitt))
+(lives-near (Reasoner Louis) (Bitdiddle Ben))
+(lives-near (Hacker Alyssa P) (Fect Cy D))
+(lives-near (Fect Cy D) (Hacker Alyssa P))
+(lives-near (Bitdiddle Ben) (Aull DeWitt))
+(lives-near (Bitdiddle Ben) (Reasoner Louis))
+#+end_example
+
+**** results: exp: logic as programs
+
+#+begin_src racket :noweb-ref rules-exp-append
+(load-plain-database rules-exp-append)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp-append>>
+;<<queries-exp-append>>
+(for-each qeval-display-formatted queries-exp-append)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+$ (append-to-form (a b) (c d) ?z)
+(append-to-form (a b) (c d) (a b c d))
+$ (append-to-form (a b) ?y (a b c d))
+(append-to-form (a b) (c d) (a b c d))
+$ (append-to-form ?x ?y (a b c d))
+(append-to-form (a b c d) () (a b c d))
+(append-to-form () (a b c d) (a b c d))
+(append-to-form (a) (b c d) (a b c d))
+(append-to-form (a b) (c d) (a b c d))
+(append-to-form (a b c) (d) (a b c d))
+#+end_example
+
+**** results: 4.61
+
+#+begin_src racket :noweb-ref rules-4-61
+(load-plain-database rules-4-61)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<rules-4-61>>
+;<<queries-4-61>>
+(for-each qeval-display-formatted queries-4-61)
+#+end_src
+
+#+RESULTS:
+: ok
+: $ (?x next-to ?y in (1 (2 3) 4))
+: ((2 3) next-to 4 in (1 (2 3) 4))
+: (1 next-to (2 3) in (1 (2 3) 4))
+: $ (?x next-to 1 in (2 1 3 1))
+: (3 next-to 1 in (2 1 3 1))
+: (2 next-to 1 in (2 1 3 1))
+
+**** results: 4.62
+
+Matching this below rule will fall into endless recursion.
+
+#+begin_src racket
+'(rule (last-pair () ?x)
+       (last-pair () none))
+#+end_src
+
+#+begin_src racket :noweb-ref rules-4-62
+(set! rules-4-62
+      (list
+       '(rule (last-pair () ?x)
+              (()))
+       '(rule (last-pair (?x) ?x))
+       '(rule (last-pair (?head . ?rest) ?x)
+              (or (append-to-form (?other) (?x) ?rest)
+                  (append-to-form () (?x) ?rest)))
+       ))
+(load-plain-database rules-4-62)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<rules-exp-append>>
+;<<rules-4-62>>
+;<<queries-4-62>>
+(for-each qeval-display-formatted queries-4-62)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+$ (last-pair (3) ?x)
+(last-pair (3) 3)
+$ (last-pair (1 2 3) ?x)
+(last-pair (1 2 3) 3)
+$ (last-pair (2 ?x) (3))
+(last-pair (2 (3)) (3))
+$ (last-pair ?x (3))
+(last-pair (?head-26 ?u-27 (3)) (3))
+(last-pair ((3)) (3))
+(last-pair (?head-26 (3)) (3))
+#+end_example
+
+The result of `(last-pair ?x (3))` is amazing. It finds all two pattern to construct the result: add a element to the head, or add an element as the head with following another thing. Theses 3 solutions consist of a recursive definition of the result of `(last-pair ?x (3))`.
+
+**** results: 4-63
+
+My above failed partially because of namespace pollution. Sometimes a different name to the according entries is need. Let me use an `is-` prefix to distinct them.
+
+#+begin_src racket :noweb-ref database-4-63
+(load-plain-database database-4-63)
+#+end_src
+
+#+begin_src racket :noweb-ref rules-4-63
+(set! rules-4-63
+      (list
+       '(rule (is-son ?parent ?son)
+              (or (son ?parent ?son)
+                  (and (wife ?parent ?wife)
+                       (son ?wife ?son))))
+       '(rule (grandson ?g ?s)
+              (and (is-son ?p ?s)
+                   (is-son ?g ?p)))
+       ))
+(load-plain-database rules-4-63)
+#+end_src
+
+#+begin_src racket :noweb-ref queries-4-63
+(set! queries-4-63
+      (list
+       '(grandson Cain ?who)
+       '(is-son Lamech ?who)
+       '(grandson Methushael ?who)
+       ))
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-4-63>>
+;<<rules-4-63>>
+;<<queries-4-63>>
+(for-each qeval-display-formatted queries-4-63)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+$ (grandson Cain ?who)
+(grandson Cain Irad)
+$ (is-son Lamech ?who)
+(is-son Lamech Jubal)
+(is-son Lamech Jabal)
+$ (grandson Methushael ?who)
+(grandson Methushael Jubal)
+(grandson Methushael Jabal)
+#+end_example
+
+**** results: 4.65
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp>>
+(qeval-display-formatted '(wheel ?who))
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: $ (wheel ?who)
+: (wheel (Warbucks Oliver))
+: (wheel (Warbucks Oliver))
+: (wheel (Bitdiddle Ben))
+: (wheel (Warbucks Oliver))
+: (wheel (Warbucks Oliver))
+
+**** results: 4.68
+
+#+begin_src racket :noweb-ref rules-4-68
+;<<rules-4-62>>
+(set! rules-4-68
+      (list
+       '(rule (reverse () ()))
+       '(rule (reverse (?x) (?x)))
+       '(rule (reverse (?x . ?x-tail) ?ys)
+              (and (last-pair ?ys ?x)
+                   (append-to-form ?y-fronts (?x) ?ys)
+                   (reverse ?x-tail ?y-fronts)))
+       ))
+(load-plain-database rules-4-68)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<rules-exp-append>>
+;<<rules-4-68>>
+;<<queries-4-68>>
+(for-each qeval-display-formatted queries-4-68)
+#+end_src
+
+#+RESULTS:
+: ok
+: ok
+: ok
+: $ (reverse (1 2 3) ?x)
+: (reverse (1 2 3) (3 2 1))
+: (reverse (1 2 3) (3 2 1))
+: $ (reverse ?x (1 2 3))
+: (reverse (3 2 1) (1 2 3))
+: (reverse (3 2 1) (1 2 3))
+
+**** results: 4.69
+
+#+begin_src racket :noweb-ref rules-4-69
+(load-plain-database rules-4-69)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-4-63>>
+;<<rules-exp-append>>
+;<<rules-4-63>>
+;<<rules-4-69>>
+;<<queries-4-69>>
+(for-each qeval-display-formatted queries-4-69)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+ok
+ok
+$ ((great grandson) ?g ?ggs)
+((great grandson) Irad Lamech)
+((great grandson) Enoch Methushael)
+((great grandson) Cain Mehujael)
+((great grandson) Adam Irad)
+$ (?relationship Adam Irad)
+((great grandson) Adam Irad)
+((great great great great . son) Adam Irad)
+((great great . grandson) Adam Irad)
+((great great great great . is-son) Adam Irad)
+$ (?relationship Adam Mehujael)
+((great great great grandson) Adam Mehujael)
+((great great great great great great . son) Adam Mehujael)
+((great great great great . grandson) Adam Mehujael)
+((great great great great great great . is-son) Adam Mehujael)
+#+end_example
+
+This result is funnier than I thought.
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-4-63>>
+;<<rules-exp-append>>
+;<<rules-4-62>>
+;<<rules-4-63>>
+;<<queries-4-69>>
+(define rules-4-69
+  (list
+   '(rule ((great . ?rel) ?ancestor ?descendant)
+               (or (and (append-to-form () (grandson) ?rel)
+                        (grandson ?ancestor ?m)
+                        (is-son ?m ?descendant))
+                   (and (last-pair ?rel grandson)
+                        (is-son ?ancestor ?m)
+                        (?rel ?m ?descendant))))
+   ))
+(load-plain-database rules-4-69)
+(for-each qeval-display-formatted queries-4-69)
+(qeval-display-formatted '(?relationship Adam Mehujael))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+ok
+ok
+ok
+ok
+$ ((great grandson) ?g ?ggs)
+((great grandson) Mehujael Jubal)
+((great grandson) Irad Lamech)
+((great grandson) Mehujael Jabal)
+((great grandson) Enoch Methushael)
+((great grandson) Cain Mehujael)
+((great grandson) Adam Irad)
+$ (?relationship Adam Irad)
+((great grandson) Adam Irad)
+$ (?relationship Adam Mehujael)
+((great great grandson) Adam Mehujael)
+#+end_example
+
+**** 4.71
+
+#+begin_src racket :results none :noweb-ref 4-71
+(define (simple-query query-pattern frame-stream)
+  (stream-flatmap
+   (lambda (frame)
+     (stream-append (find-assertions query-pattern frame)
+                    (apply-rules query-pattern frame)))
+   frame-stream))
+
+(define (disjoin disjuncts frame-stream)
+  (if (empty-disjunction? disjuncts)
+      the-empty-stream
+      (interleave
+       (qeval (first-disjunct disjuncts) frame-stream)
+       (disjoin (rest-disjuncts disjuncts) frame-stream))))
+#+end_src
+
+This version removes the delays. If the result stream is an infinite stream, the program will get stuck in the procedure, other than generate an infinite stream and display them one by one.
+
+Well, due to the expression ability and oriented senerio, there's no need to use rules which generates infinite stream. And it's easier to write queries which may fall into infinite loop.
+
+#+begin_src racket :results none
+(assert! (rule (forever ?x) (forever ?x)))
+(assert! (forever 1))
+(forever ?x)
+#+end_src
+
+#+begin_src log
+;;; Query input:
+(assert! (rule (forever ?x) (forever ?x)))
+
+Assertion added to data base.
+
+;;; Query input:
+(assert! (forever 1))
+
+Assertion added to data base.
+
+;;; Query input:
+(forever ?x)
+
+;;; Query results:
+(forever 1)
+(forever 1)
+(forever 1)
+(forever 1)
+...
+#+end_src
+
+**** 4.72
 
 * Helper functions
 
@@ -5219,6 +6444,108 @@ For self recursion, one way is to restrict that the input of the inner rule matc
 (define (fold-right f lst acc)
   (if (null? lst) acc
       (f (car lst) (fold-right f (cdr lst) acc))))
+#+end_src
+
+#+begin_src racket :noweb-ref stream
+(define stream-car car)
+(define (stream-cdr ss) (force (cdr ss)))
+
+(define (stream-map f . sss)
+  ;<<fold>>
+  (if (stream-null? (car sss))
+      the-empty-stream
+      (cons-stream (apply f (map stream-car sss))
+                   (apply stream-map (cons f (map stream-cdr sss))))))
+
+(define (stream-filter f ss)
+  (cond [(stream-null? ss) the-empty-stream]
+        [(f (stream-car ss))
+         (cons-stream (stream-car ss)
+                      (stream-filter f (stream-cdr ss)))]
+        [else (stream-filter f (stream-cdr ss))]))
+(define (stream-take ss n)
+  (cond [(stream-null? ss) '()]
+        [(<= n 0) '()]
+        [else (cons (stream-car ss) (stream-take (stream-cdr ss) (- n 1)))]))
+
+(define (stream-append xs ys)
+  (cond [(stream-null? xs) ys]
+        [(stream-null? ys) xs]
+        [else
+         (cons-stream (stream-car xs)
+                      (stream-append (stream-cdr xs)
+                                     ys))]))
+
+(define (stream-foreach f ss)
+  (if (not (stream-null? ss))
+      (begin (f (stream-car ss))
+             (stream-foreach f (stream-cdr ss)))))
+
+(define (display-stream ss)
+  (stream-foreach (lambda (x) (display x) (newline)) ss))
+
+(define ones (cons-stream 1 ones))
+(define integers (cons-stream 1 (add-streams ones integers)))
+
+(define (add-streams . sss)
+  (apply stream-map (cons + sss)))
+
+(define (integers-start-from n)
+  (define (iter ss)
+    (if (= n (stream-car ss)) ss
+        (iter (stream-cdr ss))))
+  (iter integers))
+
+(define (divisible? x n)
+  (= (remainder x n) 0))
+
+(define (sieve ss)
+  (cons-stream (stream-car ss)
+               (sieve (stream-filter
+                       (lambda (x) (not (divisible? x (stream-car ss))))
+                       (stream-cdr ss)))))
+(define primes (sieve (integers-start-from 2)))
+#+end_src
+
+I'm lazy to implement the mutable 2D table again. So let me use something in racket standard lib.
+
+#+begin_src racket :noweb-ref get-put
+(#%require (only racket make-hash hash-set! hash-ref))
+
+(define (make-two-dimention-key k1 k2)
+  (list k1 '*hash-dimention-divisor* k2))
+
+(define the-global-table (make-hash))
+
+(define (put k1 k2 v)
+  (hash-set! the-global-table (make-two-dimention-key k1 k2) v))
+(define (get k1 k2)
+  (hash-ref the-global-table (make-two-dimention-key k1 k2) false))
+
+(define (get-or k1 k2 alternative)
+  (hash-ref the-global-table (make-two-dimention-key k1 k2) alternative))
+#+end_src
+
+#+begin_src racket
+;<<get-put>>
+(put 'hello 'world "hello world")
+(put 'key1 '(key2 typed list) "v")
+(get 'hello 'world)
+(get-or 'hello 'w "nothing")
+the-global-table
+#+end_src
+
+#+RESULTS:
+: "hello world"
+: "nothing"
+: #hash(((key1 *hash-dimention-divisor* (key2 typed list)) . "v") ((hello *hash-dimention-divisor* world) . "hello world"))
+
+#+begin_src racket :noweb-ref debug
+(define (id-displayln x) (display x) (newline) x)
+(define (debug . args)
+  (display args) (display ":")
+  (if (null? args) args
+      (id-displayln (apply (car args) (cdr args)))))
 #+end_src
 
 * COMMENT Local Variables

@@ -68,6 +68,7 @@
 (define (self-evaluating? expr)
   (cond [(number? expr) true]
         [(string? expr) true]
+        [(boolean? expr) true]
         [else false]))
 
 (define (variable? expr) (symbol? expr))
@@ -302,6 +303,9 @@
    (list '= =) (list '< <) (list '> >)
    (list 'display display) (list 'newline newline) ; Exercise 4.30
    (list 'eq? eq?) ; Exercise 4.34
+   (list 'not not) (list 'memq memq)         ; Book 4.3.3
+   (list 'even? even?)                       ; Exercise 4.52
+   (list 'modulo modulo) (list 'floor floor) ; Exercise 4.53
    ))
 
 (define (primitive-procedure-names)
@@ -416,8 +420,12 @@
         [(lambda? expr) (analyze-lambda expr)]
         [(begin? expr) (analyze-sequence (begin-actions expr))]
         [(cond? expr) (analyze (cond->if expr))]
-        ;; [(let? expr) (analyze (let->combination expr))]         ; let: Exercise 4.22
+        [(let? expr) (analyze (let->combination expr))]         ; let: Exercise 4.22
         [(amb? expr) (analyze-amb expr)]
+        [(ramb? expr) (analyze-ramb expr)]                      ; ramb: Exercise 4.50
+        [(if-fail? expr) (analyze-if-fail expr)]                ; if-fail: Exercise 4.52
+        [(permanent-assignment? expr) (analyze-permanent-assignment expr)] ; permanent-set!: Exercise 4.51
+        [(require? expr) (analyze-require expr)]               ; require: Exercise 4.54
         [(application? expr) (analyze-application expr)]
         [else (error "Unknown expression type -- ANALYZE" expr)]))
 (define (analyze-self-evaluating expr)
@@ -435,7 +443,7 @@
 
 (define (analyze-lambda expr)
   (let ([vars (lambda-parameters expr)]
-        [bproc (lambda-body expr)])
+        [bproc (analyze-sequence (lambda-body expr))])
     (lambda (env succ fail)
       (succ (make-procedure vars bproc env) fail))))
 (define (analyze-if expr)
@@ -478,7 +486,7 @@
 
 (define (analyze-assignment expr)
   (let ([var (assignment-variable expr)]
-        [vproc (assignment-value expr)])
+        [vproc (analyze (assignment-value expr))])
     (lambda (env succ fail)
       (vproc env
              (lambda (val failv)
@@ -490,9 +498,6 @@
                          (failv)))))
              fail))))
 (define (analyze-application expr)
-  (display expr)
-  (display (operator expr))
-  (display (operands expr))
   (let ([fproc (analyze (operator expr))]
         [aprocs (map analyze (operands expr))])
     (lambda (env succ fail)
@@ -540,6 +545,61 @@
                            (lambda ()
                              (try-next (cdr choices))))))
       (try-next cprocs))))
+(define (a-random-element-and-rest lst)
+  (define (pick-to-first heads tails i)
+    (if (= i 0)
+        (cons (car tails) (append (reverse heads) (cdr tails)))
+        (pick-to-first (cons (car tails) heads)
+                       (cdr tails)
+                       (- i 1))))
+  (let ([rand (random (length lst))])
+    (pick-to-first '() lst rand)))
+
+(define (ramb? expr) (tagged-list? expr 'ramb))
+(define (analyze-ramb expr)
+  (let ([cprocs (map analyze (cdr expr))])
+    (lambda (env succ fail)
+      (define (try-again choices)
+        (if (null? choices)
+            (fail)
+            (let ([chosen-rest (a-random-element-and-rest choices)])
+              ((car chosen-rest) env
+                                 succ
+                                 (lambda ()
+                                   (try-again (cdr chosen-rest)))))))
+      (try-again cprocs))))
+(define (permanent-assignment? expr) (tagged-list? expr 'permanent-set!))
+(define (analyze-permanent-assignment expr)
+  (lambda (env succ fail)
+    (let ([var (assignment-variable expr)]
+          [vproc (analyze (assignment-value expr))])
+      (vproc env
+             (lambda (val failv)
+               (set-variable-value! var val env)
+               (succ 'ok failv))
+             fail))))
+(define (if-fail? expr) (tagged-list? expr 'if-fail))
+(define (analyze-if-fail expr)
+  (lambda (env succ fail)
+    (let ([pproc (analyze (if-predicate expr))]
+          [cproc (analyze (if-consequent expr))])
+      (pproc env
+             (lambda (val failp)
+               (succ val failp))
+             (lambda ()
+               (cproc env succ fail))))))
+(define (require? expr) (tagged-list? expr 'require))
+(define (require-predicate expr) (cadr expr))
+
+(define (analyze-require expr)
+  (let ([pproc (analyze (require-predicate expr))])
+    (lambda (env succ fail)
+      (pproc env
+             (lambda (valp failp)
+               (if (false? valp)
+                   (failp)
+                   (succ 'ok failp)))
+             fail))))
 
 (define the-global-environment (setup-environment))
 

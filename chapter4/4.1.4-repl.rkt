@@ -69,6 +69,7 @@
 (define (self-evaluating? expr)
   (cond [(number? expr) true]
         [(string? expr) true]
+        [(boolean? expr) true]
         [else false]))
 
 (define (variable? expr) (symbol? expr))
@@ -303,6 +304,9 @@
    (list '= =) (list '< <) (list '> >)
    (list 'display display) (list 'newline newline) ; Exercise 4.30
    (list 'eq? eq?) ; Exercise 4.34
+   (list 'not not) (list 'memq memq)         ; Book 4.3.3
+   (list 'even? even?)                       ; Exercise 4.52
+   (list 'modulo modulo) (list 'floor floor) ; Exercise 4.53
    ))
 
 (define (primitive-procedure-names)
