@@ -336,6 +336,92 @@
   rule-counter)
 (define (make-new-variable var rule-application-id)
   (cons '? (cons rule-application-id (cdr var))))
+(define (stream-singleton? s)
+  (cond [(stream-null? s) false]
+        [(stream-null? (stream-cdr s)) true]
+        [else false]))
+(define (list-singleton? l)
+  (cond [(null? l) false]
+        [(null? (cdr l)) true]
+        [else false]))
+
+(define empty-unique-query? null?)
+(define unique-query car)
+(define unique-query-singleton? list-singleton?)
+
+(define (uniquely-asserted queries frame-stream)
+  (define (singleton-or-empty s)
+    (if (stream-singleton? s) s
+        the-empty-stream))
+  (cond [(empty-unique-query? queries) frame-stream]
+        [(unique-query-singleton? queries)
+          (stream-flatmap
+           (lambda (frame)
+             (singleton-or-empty
+              (qeval (unique-query queries)
+                     (singleton-stream frame))))
+           frame-stream)]
+        [else
+         (error "Multiple queries in UNIQUE query" queries)]))
+
+(put 'unique 'qeval uniquely-asserted)
+(define (conjoin2 conjuncts frame-stream)
+  (cond [(empty-conjunction? conjuncts)
+         frame-stream]
+        [(empty-conjunction? (rest-conjuncts conjuncts))
+         (qeval (first-conjunct conjuncts) frame-stream)]
+        [else
+         (let ([first (first-conjunct conjuncts)]
+               [second (first-conjunct (rest-conjuncts conjuncts))]
+               [rest (rest-conjuncts (rest-conjuncts conjuncts))])
+           ; or use `conjoin2`
+           (conjoin rest
+                    (combine-frame-streams
+                     (qeval first frame-stream)
+                     (qeval second frame-stream))))]))
+
+(define (combine-frame-streams xs ys)
+  (stream-filter
+   (lambda (frame) (not (eq? frame 'failed-combine)))
+   (stream-flatmap (lambda (y)
+                     (stream-map (lambda (x)
+                                   (combine-frame x y))
+                                 xs))
+                   ys)))
+
+(define (binding? expr)
+  (and (pair? expr)
+       (var? (binding-variable expr))))
+
+(define (frame-bindings expr)
+  (define (iter subexpr)
+    (cond [(null? subexpr) subexpr]
+          [(binding? (car subexpr))
+           (cons (car subexpr)
+                 (iter (cdr subexpr)))]
+          [else (iter (cdr subexpr))]))
+  (iter expr))
+
+(define bindings-first car)
+(define bindings-rest cdr)
+
+; combine if the value of according var equals
+(define (combine-frame f1 f2)
+  (define (do-combine f1 f2) f2)
+  (define (iter bindings)
+    (cond [(eq? bindings 'failed-combine) 'failed-combine]
+          [(null? bindings) (do-combine f1 f2)]
+          [else
+           (let ([binding1 (bindings-first bindings)])
+             (let ([binding2 (binding-in-frame (binding-variable binding1) f2)])
+               (if (and binding2
+                        (equal? (binding-value binding1)
+                                (binding-value binding2)))
+                   (iter (bindings-rest bindings))
+                   'failed-combine)))]))
+  (iter (frame-bindings f1)))
+
+(put 'and2 'qeval conjoin2)
 (define (stream-append-delayed s1 delayed-s2)
   (if (stream-null? s1)
       (force delayed-s2)
@@ -366,6 +452,13 @@
   (cons-stream x the-empty-stream))
 (define stream-car car)
 (define (stream-cdr ss) (force (cdr ss)))
+
+(define (list->stream lst)
+  (if (null? lst) the-empty-stream
+      (cons-stream (car lst)
+                   (list->stream (cdr lst)))))
+(define (stream . items)
+  (list->stream items))
 
 (define (stream-map f . sss)
   (define (fold-left f acc lst)
@@ -400,8 +493,7 @@
                                      ys))]))
 
 (define (stream-foreach f ss)
-  (if (stream-null? ss)
-      'done
+  (if (not (stream-null? ss))
       (begin (f (stream-car ss))
              (stream-foreach f (stream-cdr ss)))))
 
@@ -532,8 +624,6 @@
 (define (prompt-for-input string)
   (newline) (newline) (display string) (newline))
 
-(load-plain-database (list '(rule (forever ?x) (forever ?x))))
-
 (define (query-driver-loop)
   (prompt-for-input input-prompt)
   (let ([q (query-syntax-process (read))])
@@ -554,7 +644,4 @@
                               (contract-question-mark v))))
              (qeval q (singleton-stream '()))))
            (query-driver-loop)])))
-
 (query-driver-loop)
-;(qeval-stream '(salary ?x ?y))
-(qeval-stream '(forever ?x))

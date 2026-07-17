@@ -4796,18 +4796,21 @@ c. the names and addresses of all people who live in Slumerville.
 
 *** exp: compound queries
 
-#+begin_src racket :results none
-(and (job ?persion (computer programmer))
-     (address ?person ?where))
+#+begin_src racket :results none :noweb-ref queries-exp-compound
+(define queries-exp-compound
+  (list
+   '(and (job ?person (computer programmer))
+         (address ?person ?where))
 
-(or (supervisor ?x (Bitdiddle Ben))
-    (supervisor ?x (Hacker Alyssa P)))
+   '(or (supervisor ?x (Bitdiddle Ben))
+        (supervisor ?x (Hacker Alyssa P)))
 
-(and (supervisor ?x (Bitdiddle Ben))
-     (not (job ?x (computer programmer))))
+   '(and (supervisor ?x (Bitdiddle Ben))
+         (not (job ?x (computer programmer))))
 
-(and (salary ?person ?amount)
-     (lisp-value > ?amount 30000))
+   '(and (salary ?person ?amount)
+         (lisp-value > ?amount 30000))
+   ))
 #+end_src
 
 *** 4.56
@@ -5875,6 +5878,37 @@ $ (address ?who (Slumerville . ?where))
 (address (Bitdiddle Ben) (Slumerville (Ridge Road) 10))
 #+end_example
 
+**** results: compound queries
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<queries-exp-compound>>
+(for-each qeval-display-formatted queries-exp-compound)
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (and (job ?person (computer programmer)) (address ?person ?where))
+(and (job (Fect Cy D) (computer programmer)) (address (Fect Cy D) (Cambridge (Ames Street) 3)))
+(and (job (Hacker Alyssa P) (computer programmer)) (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78)))
+$ (or (supervisor ?x (Bitdiddle Ben)) (supervisor ?x (Hacker Alyssa P)))
+(or (supervisor (Tweakit Lem E) (Bitdiddle Ben)) (supervisor (Tweakit Lem E) (Hacker Alyssa P)))
+(or (supervisor (Reasoner Louis) (Bitdiddle Ben)) (supervisor (Reasoner Louis) (Hacker Alyssa P)))
+(or (supervisor (Fect Cy D) (Bitdiddle Ben)) (supervisor (Fect Cy D) (Hacker Alyssa P)))
+(or (supervisor (Hacker Alyssa P) (Bitdiddle Ben)) (supervisor (Hacker Alyssa P) (Hacker Alyssa P)))
+$ (and (supervisor ?x (Bitdiddle Ben)) (not (job ?x (computer programmer))))
+(and (supervisor (Tweakit Lem E) (Bitdiddle Ben)) (not (job (Tweakit Lem E) (computer programmer))))
+$ (and (salary ?person ?amount) (lisp-value > ?amount 30000))
+(and (salary (Scrooge Eben) 75000) (lisp-value > 75000 30000))
+(and (salary (Warbucks Oliver) 150000) (lisp-value > 150000 30000))
+(and (salary (Fect Cy D) 35000) (lisp-value > 35000 30000))
+(and (salary (Hacker Alyssa P) 40000) (lisp-value > 40000 30000))
+(and (salary (Bitdiddle Ben) 60000) (lisp-value > 60000 30000))
+#+end_example
+
+
 **** results: 4.56
 
 #+begin_src racket
@@ -6393,7 +6427,7 @@ Assertion added to data base.
 ;;; Query input:
 (forever ?x)
 
-;;; Query results:
+;;; Query results:(forever 1)
 (forever 1)
 (forever 1)
 (forever 1)
@@ -6402,6 +6436,392 @@ Assertion added to data base.
 #+end_src
 
 **** 4.72
+
+#+begin_src racket
+(load-plain-database (list
+                      '(rule (forever ?x) (forever ?x))
+                      '(forever 1)
+                      '(forever 2)))
+#+end_src
+
+#+begin_src log
+————— run draft.rkt —————
+ok
+ok
+
+
+;;; Query input:
+(forever ?x)
+
+;;; Query results:(forever 2)
+(forever 2)
+(forever 1)
+(forever 2)
+(forever 1)
+(forever 2)
+(forever 1)
+(forever 2)
+(forever 1)
+...
+#+end_src
+
+For this above example, if the `stream-flatmap` doesn't use interleave, it would only print one entry repeatedly, other than print them interleaved.
+
+For `disjoin`, if one disjunct generates infinite stream, it may prevent other stream to be print out if results are not combined interleaved, especially that the onther disjunt(s) also generate(s) infinite streams.
+
+**** 4.73
+
+#+begin_src racket
+(define (flatten-stream stream)
+  (if (stream-null? stream)
+      the-empty-stream
+      (interleave
+       (stream-car stream)
+       (flatten-stream (stream-cdr stream)))))
+#+end_src
+
+This version of `flatten-stream` do not use `delay` on the recusion calls, and `interleave` forced to be not lazy.
+
+The `stream-flatmap` use this procedure, while the input `frame-stream` to `stream-flatmap` may be infinite stream. Just like Exercise 4.71, this would make program got stuck and do not print.
+
+#+begin_src racket
+(load-plain-database (list
+                      '(rule (repeat (?x . ?y)) (repeat ?y))
+                      '(repeat (1 1))
+                      '(repeat (2 2))
+                      ))
+#+end_src
+
+The `repeat` rule can generate infinite stream.
+
+#+begin_src log
+————— run draft.rkt —————
+ok
+ok
+
+
+;;; Query input:
+(and (repeat ?x) (repeat ?y))
+
+;;; Query results:(and (repeat (1 1)) (repeat (1 1)))
+(and (repeat (?x-1 1 1)) (repeat (1 1)))
+(and (repeat (1 1)) (repeat (?x-2 1 1)))
+(and (repeat (2 2)) (repeat (1 1)))
+(and (repeat (1 1)) (repeat (2 2)))
+(and (repeat (?x-1 1 1)) (repeat (?x-3 1 1)))
+(and (repeat (1 1)) (repeat (?x-2 ?x-4 1 1)))
+(and (repeat (?x-1 ?x-5 1 1)) (repeat (1 1)))
+(and (repeat (1 1)) (repeat (?x-2 2 2)))
+(and (repeat (?x-1 1 1)) (repeat (2 2)))
+#+end_src
+
+If I can use an `and` query to trigger the `interleave`, the program will get stuck.
+
+#+begin_src log
+————— run draft.rkt —————
+ok
+ok
+
+
+;;; Query input:
+(and (repeat ?x) (repeat ?y))
+
+;;; Query results:
+#+end_src
+
+**** 4.74
+
+Literate programming fails to the case of this exercise.
+
+#+begin_src racket :results none :noweb-ref 4-74
+(define (simple-stream-flatmap proc s)
+  (simple-flatten (stream-map proc s)))
+
+(define (simple-flatten stream)
+  ;<<higher-order>>
+  (stream-map stream-car
+              (stream-filter ((F 'compose) not stream-null?) stream)))
+#+end_src
+
+#+begin_src racket
+;<<stream>>
+;<<4-74>>
+;<<higher-order>>
+(define >>= ((F 'flip) simple-stream-flatmap))
+
+((lambda (x) (display-stream x) (newline) x)
+ (>>= (stream (stream) (stream) (stream 1) (stream 2) (stream))
+     identity))
+#+end_src
+
+#+RESULTS:
+: 1
+: 2
+:
+: (1 . #<promise>)
+
+This new version doesn't change the laziness of the procedure, and the functionality doesn't change.
+
+**** 4.75
+
+#+begin_src racket :noweb-ref eval-query
+(define (stream-singleton? s)
+  (cond [(stream-null? s) false]
+        [(stream-null? (stream-cdr s)) true]
+        [else false]))
+(define (list-singleton? l)
+  (cond [(null? l) false]
+        [(null? (cdr l)) true]
+        [else false]))
+
+(define empty-unique-query? null?)
+(define unique-query car)
+(define unique-query-singleton? list-singleton?)
+
+(define (uniquely-asserted queries frame-stream)
+  (define (singleton-or-empty s)
+    (if (stream-singleton? s) s
+        the-empty-stream))
+  (cond [(empty-unique-query? queries) frame-stream]
+        [(unique-query-singleton? queries)
+          (stream-flatmap
+           (lambda (frame)
+             (singleton-or-empty
+              (qeval (unique-query queries)
+                     (singleton-stream frame))))
+           frame-stream)]
+        [else
+         (error "Multiple queries in UNIQUE query" queries)]))
+
+(put 'unique 'qeval uniquely-asserted)
+#+end_src
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+(for-each
+ qeval-display-formatted
+ (list
+  '(unique (job ?x (computer wizard)))
+  '(job ?who (computer programmer))
+  '(unique (job ?x (computer programmer)))
+  '(and (job ?x ?j)
+        (unique (job ?anyone ?j)))
+  ))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (unique (job ?x (computer wizard)))
+(unique (job (Bitdiddle Ben) (computer wizard)))
+$ (job ?who (computer programmer))
+(job (Fect Cy D) (computer programmer))
+(job (Hacker Alyssa P) (computer programmer))
+$ (unique (job ?x (computer programmer)))
+$ (and (job ?x ?j) (unique (job ?anyone ?j)))
+(and (job (Aull DeWitt) (administration secretary)) (unique (job (Aull DeWitt) (administration secretary))))
+(and (job (Cratchet Robert) (accounting scrivener)) (unique (job (Cratchet Robert) (accounting scrivener))))
+(and (job (Scrooge Eben) (accounting chief accountant)) (unique (job (Scrooge Eben) (accounting chief accountant))))
+(and (job (Warbucks Oliver) (administration big wheel)) (unique (job (Warbucks Oliver) (administration big wheel))))
+(and (job (Reasoner Louis) (computer programmer trainee)) (unique (job (Reasoner Louis) (computer programmer trainee))))
+(and (job (Tweakit Lem E) (computer technician)) (unique (job (Tweakit Lem E) (computer technician))))
+(and (job (Bitdiddle Ben) (computer wizard)) (unique (job (Bitdiddle Ben) (computer wizard))))
+#+end_example
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+(qeval-display-formatted
+ '(and (job ?who ?j)
+       (unique (supervisor ?s ?who))))
+#+end_src
+
+#+RESULTS:
+: ok
+: $ (and (job ?who ?j) (unique (supervisor ?s ?who)))
+: (and (job (Scrooge Eben) (accounting chief accountant)) (unique (supervisor (Cratchet Robert) (Scrooge Eben))))
+: (and (job (Hacker Alyssa P) (computer programmer)) (unique (supervisor (Reasoner Louis) (Hacker Alyssa P))))
+
+**** 4.76 (with my comments to the system)
+
+There are many questions to this exercise, and this reflects some question of this system or the description/perspective to the system in the book.
+
+Firstly, the exercise describes like that for one `and` query, there'are only has two conjunts. While the implementation of before version of `conjoin` allow more conjuncts. On the other hand, if we firstly merge the two frame streams, we can't use the same way to merge the third and the follows, unless to group the conjuncts into pairs, and handle each pair by `conjoin2`(see below, I use an other name for this version of `and` compound query). Or, use qeval for each conjunts firstly, then merge them; but this strategy implies the second question.
+
+#+begin_src racket :noweb-ref eval-query
+(define (conjoin2 conjuncts frame-stream)
+  (cond [(empty-conjunction? conjuncts)
+         frame-stream]
+        [(empty-conjunction? (rest-conjuncts conjuncts))
+         (qeval (first-conjunct conjuncts) frame-stream)]
+        [else
+         (let ([first (first-conjunct conjuncts)]
+               [second (first-conjunct (rest-conjuncts conjuncts))]
+               [rest (rest-conjuncts (rest-conjuncts conjuncts))])
+           ; or use `conjoin2`
+           (conjoin rest
+                    (combine-frame-streams
+                     (qeval first frame-stream)
+                     (qeval second frame-stream))))]))
+
+(define (combine-frame-streams xs ys)
+  (stream-filter
+   (lambda (frame) (not (eq? frame 'failed-combine)))
+   (stream-flatmap (lambda (y)
+                     (stream-map (lambda (x)
+                                   (combine-frame x y))
+                                 xs))
+                   ys)))
+
+(define (binding? expr)
+  (and (pair? expr)
+       (var? (binding-variable expr))))
+
+(define (frame-bindings expr)
+  (define (iter subexpr)
+    (cond [(null? subexpr) subexpr]
+          [(binding? (car subexpr))
+           (cons (car subexpr)
+                 (iter (cdr subexpr)))]
+          [else (iter (cdr subexpr))]))
+  (iter expr))
+
+(define bindings-first car)
+(define bindings-rest cdr)
+
+; combine if the value of according var equals
+(define (combine-frame f1 f2)
+  (define (do-combine f1 f2) f2)
+  (define (iter bindings)
+    (cond [(eq? bindings 'failed-combine) 'failed-combine]
+          [(null? bindings) (do-combine f1 f2)]
+          [else
+           (let ([binding1 (bindings-first bindings)])
+             (let ([binding2 (binding-in-frame (binding-variable binding1) f2)])
+               (if (and binding2
+                        (equal? (binding-value binding1)
+                                (binding-value binding2)))
+                   (iter (bindings-rest bindings))
+                   'failed-combine)))]))
+  (iter (frame-bindings f1)))
+
+(put 'and2 'qeval conjoin2)
+#+end_src
+
+See below two test cases. The first case works well but the second not. This is because our strategy to firstly evaluate the conjuncts: for the second conjunct, the initial frame stream is `(singleton-stream nil)`, evaluating them to the `(not (job ...))` will choose all the assertions in the initial singletion-with-nil stream which not satisy the query of `(job ...)`, to evaluate an empty stream. Merge this empty stream by checking if there'are two frame have according variable with the same value, the result is an empty stream.
+
+This describes the second question: traversing all entries in the database is needed in some cases. Following the above example, I can try to check if the next conjunct is a `not`, but this will break the abstraction: I need to check if other compound queries have the same question.
+
+This question breaks the assumption of the exercise: we can't handle first two conjuncts ahead to improve effect.
+
+***** other comments
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp-compound>>
+(for-each qeval-display-formatted
+          (list
+           '(and (job ?person (computer programmer))
+                 (address ?person ?where))
+           '(and2 (job ?person (computer programmer))
+                  (address ?person ?where))
+
+           '(and (supervisor ?who ?leader)
+                 (not (job ?leader (computer . ?any-role)))
+                 (job ?leader ?job))
+           '(and2 (supervisor ?who ?leader)
+                  (not (job ?leader (computer . ?any-role)))
+                  (job ?leader ?job))
+           ))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (and (job ?person (computer programmer)) (address ?person ?where))
+(and (job (Fect Cy D) (computer programmer)) (address (Fect Cy D) (Cambridge (Ames Street) 3)))
+(and (job (Hacker Alyssa P) (computer programmer)) (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78)))
+$ (and2 (job ?person (computer programmer)) (address ?person ?where))
+(and2 (job (Fect Cy D) (computer programmer)) (address (Fect Cy D) (Cambridge (Ames Street) 3)))
+(and2 (job (Hacker Alyssa P) (computer programmer)) (address (Hacker Alyssa P) (Cambridge (Mass Ave) 78)))
+$ (and (supervisor ?who ?leader) (not (job ?leader (computer . ?any-role))) (job ?leader ?job))
+(and (supervisor (Aull DeWitt) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+(and (supervisor (Cratchet Robert) (Scrooge Eben)) (not (job (Scrooge Eben) (computer . ?any-role))) (job (Scrooge Eben) (accounting chief accountant)))
+(and (supervisor (Scrooge Eben) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+(and (supervisor (Bitdiddle Ben) (Warbucks Oliver)) (not (job (Warbucks Oliver) (computer . ?any-role))) (job (Warbucks Oliver) (administration big wheel)))
+$ (and2 (supervisor ?who ?leader) (not (job ?leader (computer . ?any-role))) (job ?leader ?job))
+#+end_example
+
+A question is the ill-behaved `not` query, which introduce the closed world assumption. See below result, the first three `not` queries evaluates empty stream because the default input frame is `(singleton-stream nil)`; while the last results all assertions that not match the query even they do not formed `(job ...)`.
+
+#+begin_src racket
+;<<eval-query-test>>
+;<<database-company>>
+;<<rules-exp-compound>>
+(for-each qeval-display-formatted
+          (list
+           '(job ?leader (computer . ?any-role))
+           '(not (job ?leader (computer . ?any-role)))
+           '(and (not (job ?leader (computer . ?any-role))))
+           '(and2 (not (job ?leader (computer . ?any-role))))
+           ))
+(qeval '(not (job ?leader (computer . ?any-role))) (get-all-assertions))
+#+end_src
+
+#+RESULTS:
+#+begin_example
+ok
+$ (job ?leader (computer . ?any-role))
+(job (Reasoner Louis) (computer programmer trainee))
+(job (Tweakit Lem E) (computer technician))
+(job (Fect Cy D) (computer programmer))
+(job (Hacker Alyssa P) (computer programmer))
+(job (Bitdiddle Ben) (computer wizard))
+$ (not (job ?leader (computer . ?any-role)))
+$ (and (not (job ?leader (computer . ?any-role))))
+$ (and2 (not (job ?leader (computer . ?any-role))))
+((can-do-job (administration secretary) (administration big wheel)) . #<promise>)
+#+end_example
+
+It declare that the reducing rate is k, which is quite inaccurate. This declaration based on the numbers of a certain kind of assertion but do not look the inner data entries.
+
+Actually, I didn't see things like this. I classify the data in entries. For example, there's a set of names of people in the database(company) and the elements are used in the `job` assertions, `address` assertions and so on. This model helps me a lot in checking and redoing the exercises above.
+
+Name the set of names as `N`, a set of job roles as `J`, a set of adress as `A`. A query `(job ?who ?job-role)` will compute the Cartesian product $N \times J$. Introduce more free variables in `and` conjuncts will make more product calculation.
+
+#+begin_src racket
+(and (job ?p1 ?role)
+     (address ?p2 ?where))
+#+end_src
+
+($N \times J \times N \times A$).
+
+If a new conjunct mentions a variable, it produce an restriction `f` to the output; more specifically, restriction on the set.
+
+#+begin_src racket :results none
+(and (job ?person (computer programmer))
+     (address ?person ?where))
+#+end_src
+
+($f(N) \times A$).
+
+Appeding a `not` conjunct is adding a bound to the variable(set). An disjunct which only introduce free variables is the same with a conjunct.
+
+This model is simple, but brings another perspective to introduce type to the system.
+
+**** 4.77
+
+Hmm... I talked something in Exercise 4.76 about this question.
+
+TODO:
+
+**** 4.78
+
+**** 4.79
+
+It's hearing that it want me to invent another Prolog programming language without knowing anything about PLT. I won't take the bait. I may go to learn compilation(not only chapter 5 in this book) or type systems after read this book.
 
 * Helper functions
 
@@ -6424,8 +6844,12 @@ Assertion added to data base.
   (define (partial f . args1)
     (lambda args2 (apply f (append args1 args2))))
   (define (compose . f1s) ; functions in f-s only need one argument
-    (if (null? f1s) id
-        (lambda (x) ((apply compose (cdr f1s)) (apply (car f1s) (list x))))))
+    (define (iter procs)
+      (if (null? procs) id
+          (lambda (x)
+            ((iter (cdr procs))
+             (apply (car procs) (list x))))))
+    (iter (reverse f1s)))
   (define (flip f2) (lambda (x y) (f2 y x)))
 
   (cond
@@ -6449,6 +6873,13 @@ Assertion added to data base.
 #+begin_src racket :noweb-ref stream
 (define stream-car car)
 (define (stream-cdr ss) (force (cdr ss)))
+
+(define (list->stream lst)
+  (if (null? lst) the-empty-stream
+      (cons-stream (car lst)
+                   (list->stream (cdr lst)))))
+(define (stream . items)
+  (list->stream items))
 
 (define (stream-map f . sss)
   ;<<fold>>
