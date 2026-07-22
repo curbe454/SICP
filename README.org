@@ -5,9 +5,11 @@ My notes of Structure and Interpretation of Computer Procedures(SICP) v2.
 
 UNDONE: Exercise 2.52 a.
 
-UNDONE: Exercises in 2.5.3 Symbolic Algebra
+UNDONE: Exercises in 2.5.3 Symbolic Algebra.
 
-TODO: Exercise 4.67, 4.77-4.79
+UNDONE: Exercise 4.67, 4.77-4.79.
+
+UNDONE: most of exercise in Chapter 5.
 
 * Environment
 
