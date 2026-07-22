@@ -231,13 +231,13 @@ Between the `(restore continue)` and `(save continue)`, there's nothing related 
           (let ([top (car s)])
             (set! s (cdr s))
             top)))
-    (define (initilize)
+    (define (initialize)
       (set! s '())
       'done)
     (define (dispatch message)
       (cond [(eq? message 'push) push]
             [(eq? message 'pop) pop]
-            [(eq? message 'initilize) initilize]
+            [(eq? message 'initialize) initialize]
             [(eq? message 'repr) (list '*stack* s)]
             [else
              (error "Unknown request -- STACK" message)]))
@@ -263,8 +263,8 @@ Between the `(restore continue)` and `(save continue)`, there's nothing related 
         [stack (make-stack)]
         [the-instruction-sequence '()])
     (let ([the-ops
-           (list (list 'initilize-stack
-                       (lambda () (stack 'initilize))))]
+           (list (list 'initialize-stack
+                       (lambda () (stack 'initialize))))]
           [register-table
            (list (list 'pc pc)
                  (list 'flag flag))])
@@ -407,7 +407,7 @@ Note that the calling of the `receive`s are of fold-right order, so this version
         [(eq? (car inst) 'save)
          (make-save inst machine stack pc)]
         [(eq? (car inst) 'restore)
-         (make-save inst machine stack pc)]
+         (make-restore inst machine stack pc)]
         [(eq? (car inst) 'perform)
          (make-perform inst machine labels ops pc)]
         [else
@@ -630,7 +630,7 @@ Note that the calling of the `receive`s are of fold-right order, so this version
 
 * End
 
-The following contents are more like implementing or implemeting with Lisp machine(https://en.wikipedia.org/wiki/Lisp_machine). But actually, it's not realistic to produce Lisp machines nowadays. Considering the difficulty of this book, they can even use a subset of x86 or other assembly language as an example.
+The following contents are more like implementing or implemeting with Lisp machine(https://en.wikipedia.org/wiki/Lisp_machine). But actually, it's not realistic to produce Lisp machines nowadays. Considering the difficulty of this book, they can even use a subset of x86 or other assembly language as an example. Maybe I will read the implementation of chez scheme someday.
 
 The explanations of Garbege Colletion, Tail Recurion Optimization and complilation of lambda are helpful for me.
 
@@ -647,20 +647,20 @@ The explanations of Garbege Colletion, Tail Recurion Optimization and complilati
           (let ([top (car s)])
             (set! s (cdr s))
             top)))
-    (define (initilize)
+    (define (initialize)
       (set! s '())
       'done)
     (define (dispatch message)
       (cond [(eq? message 'push) push]
             [(eq? message 'pop) pop]
-            [(eq? message 'initilize) initilize]
+            [(eq? message 'initialize) initialize]
             [(eq? message 'repr) (list '*stack* s)]
             [else
              (error "Unknown request -- STACK" message)]))
     (define (dispatch2 m)
       (let ([dict `[(push ,push)
                     (pop ,pop)
-                    (initilize ,initilize)
+                    (initialize ,initialize)
                     (repr ,(list '*stack* s))]])
         (let ([record (assq m dict)])
           (if record
