@@ -21,3 +21,19 @@ It is nice to use [[https://github.com/hasu/emacs-ob-racket][emacs-ob-racket]] f
 * Reference
 
 https://groups.csail.mit.edu/mac/projects/info/schemedocs/ref-manual/html/scheme_toc.html
+
+https://conservatory.scheme.org/schemers/Documents/Standards/R5RS/
+
+https://docs.racket-lang.org/sicp-manual/SICP_Language.html
+
+https://docs.racket-lang.org
+
+https://www.gnu.org/software/emacs/
+
+https://github.com/doomemacs
+
+Thanks to their exercise solutions:
+
+https://www.inchmeal.io/sicp
+
+https://mk12.github.io/sicp/exercise/index.html
